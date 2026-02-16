@@ -124,12 +124,12 @@ Play slots • Flip coins • Earn XP • Climb ranks
 ║   💳 YOUR ACCOUNT 💳      ║
 ╚═══════════════════════════╝
 
-💰 <b>Balance:</b> <code>{int(balance)} ∆</code>
+💰 <b>Balance:</b> <code>{int(balance)} 🪙</code>
 ⚡ <b>XP:</b> <code>{int(xp)}</code>
 🎮 <b>Games:</b> <code>{games}</code>
 {f'👑 <b>Role:</b> <code>OWNER</code>' if is_owner else ''}
 
-<b>🎯 Keep playing to earn more ∆!</b>
+<b>🎯 Keep playing to earn more 🪙!</b>
 """
         await update.message.reply_text(balance_text, parse_mode=ParseMode.HTML)
 
@@ -173,7 +173,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
             balance_html = html.escape(str(balance_val)) + html.escape(CURRENCY_SYMBOL)
             leaderboard_text += f"{rank_emoji} <a href=\"{link}\">{display}</a> → <code>{balance_html}</code>\n"
 
-        leaderboard_text += f"\nJoin {html.escape(GROUP_NAME)} and start playing!"
+        leaderboard_text += f"\n🎮 Join {html.escape(GROUP_NAME)} to play and earn 🪙!"
 
         await update.message.reply_text(leaderboard_text, parse_mode=ParseMode.HTML)
 
@@ -311,19 +311,19 @@ Play slots • Flip coins • Earn XP • Climb ranks
         # Result message BEAUTIFUL
         result_emoji = "🎉" if won else "😢"
         result_text = "Heads 🪙" if result == "heads" else "Tails 🪙"
-        change = f"+{int(balance_change)} ∆" if won else f"-{int(balance_change)} ∆"
+        change = f"+{int(balance_change)} 🪙" if won else f"-{int(balance_change)} 🪙"
         
         msg = f"🪙 <b>{'WIN!' if won else 'LOSS'}</b>\n\n"
         msg += f"You chose: <b>{choice.upper()}</b>\n"
         msg += f"Result: <b>{result.upper()}</b>\n\n"
         msg += f"{change}\n"
         msg += f"⚡ +{int(xp_gain)} XP\n"
-        msg += f"💰 Balance: <code>{int(new_bal):,} ∆</code>"
+        msg += f"💰 Balance: <code>{int(new_bal):,} 🪙</code>"
         
         try:
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
         except:
-            await update.message.reply_text(f"🪙 {'WIN!' if won else 'LOSS'} | {change} | Balance: {int(new_bal):,} ∆", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"🪙 {'WIN!' if won else 'LOSS'} | {change} | Balance: {int(new_bal):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def top_xp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /top command - Show top XP players"""
@@ -534,11 +534,11 @@ Play slots • Flip coins • Earn XP • Climb ranks
 
         # Build result message - BEAUTIFUL & INFORMATIVE
         if multiplier > 0:
-            change_text = f"✅ +{int(net_change)} ∆"
+            change_text = f"✅ +{int(net_change)} 🪙"
         else:
-            change_text = f"❌ -{int(bet_amount)} ∆"
+            change_text = f"❌ -{int(bet_amount)} 🪙"
         
-        details = f"🎰 <b>{result_type}</b>\n\n{change_text}\n⚡ +{int(xp_gain)} XP\n💰 Balance: <code>{int(new_balance):,} ∆</code>"
+        details = f"🎰 <b>{result_type}</b>\n\n{change_text}\n⚡ +{int(xp_gain)} XP\n💰 Balance: <code>{int(new_balance):,} 🪙</code>"
 
         # Send result (no buttons - text only for /start users)
         try:
@@ -548,7 +548,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 await update.message.reply_text(details, parse_mode=ParseMode.HTML)
             except Exception as e:
                 try:
-                    await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} ∆", parse_mode=ParseMode.HTML)
+                    await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
                 except:
                     pass
 
@@ -1083,7 +1083,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 name = html.escape(player.get('username', f"User{player['userId']}")[:15])
                 bal = int(player.get('economy', {}).get('balance', 0))
                 emoji = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
-                msg += f"{emoji} {name}: <code>{bal:,} ∆</code>\n"
+                msg += f"{emoji} {name}: <code>{bal:,} 🪙</code>\n"
             
             await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
@@ -1110,7 +1110,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 xp = int(player.get('xp', 0))
                 bal = int(player.get('economy', {}).get('balance', 0))
                 emoji = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
-                msg += f"{emoji} {name}: <code>{xp:,} XP | {bal:,} ∆</code>\n"
+                msg += f"{emoji} {name}: <code>{xp:,} XP | {bal:,} 🪙</code>\n"
             
             await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
@@ -1160,8 +1160,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
         else:
             await query.edit_message_text(
                 f"🎁 <b>BONUS CLAIMED!</b>\n\n"
-                f"✅ +{DAILY_BONUS} ∆\n"
-                f"💰 Balance: <code>{int(new_balance):,} ∆</code>",
+                f"✅ +{DAILY_BONUS} 🪙\n"
+                f"💰 Balance: <code>{int(new_balance):,} 🪙</code>",
                 parse_mode=ParseMode.HTML
             )
 
@@ -1228,7 +1228,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                      "• <code>/bet [amt] [heads|tails]</code> - Coin flip\n\n"
                      "<b>💎 ACCOUNT:</b>\n"
                      "• <code>/balance</code> - Check balance & XP\n"
-                     "• <code>/bonus</code> - Daily 100 ∆ bonus\n"
+                     "• <code>/bonus</code> - Daily 100 🪙 bonus\n"
                      "• <code>/send [@user] [amount]</code> - Send balance\n\n"
                      "<b>🏆 RANKINGS:</b>\n"
                      "• <code>/leaderboard</code> - Top 100 by balance\n"

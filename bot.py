@@ -620,28 +620,25 @@ Games: {games}
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = f"""
-<b>📖 {BOT_NAME} - Help 📖</b>
+<b>🎮 {BOT_NAME}</b>
 
-<b>Available Commands:</b>
+<b>Commands:</b>
+💳 /balance - Balance + XP
+🏆 /leaderboard - Top balances
+🏅 /top - Top XP players
+🎰 /slots [amt] - Slots game
+🪙 /bet [amt] [H|T] - Coin flip
+🎁 /bonus - Daily bonus
+🤝 /send [amt] - Send coins
+ℹ️ /help - This message
 
-🎮 /start - Start the bot
-💰 /balance - Check your balance
-🏆 /leaderboard - View top players
-🎰 /slots [amount] - Play slots game
-🎁 /bonus - Get daily bonus (every 12 hours)
-🤝 /send [amount] - Send {html.escape(CURRENCY_SYMBOL)} to others
+<b>Games:</b>
+🎰 Slots: Win up to 10x
+🪙 Coin Flip: 2x on win
 
-<b>Game Rules:</b>
-• Minimum bet: <code>{SLOTS_MIN_BET}{html.escape(CURRENCY_SYMBOL)}</code>
-• Maximum bet: <code>{SLOTS_MAX_BET}{html.escape(CURRENCY_SYMBOL)}</code>
-• 🎰 value 64 = <b>JACKPOT!</b> (×{int(JACKPOT_MULTIPLIER)})
-• 🎰 value 1, 22, 43 = <b>WIN!</b> (×3)
-• Other values = Loss
-• Daily bonus: <code>{DAILY_BONUS}{html.escape(CURRENCY_SYMBOL)}</code> every 12 hours
+<b>Earn XP & Climb /top!</b>
 
-<b>Currency:</b> {html.escape(CURRENCY_SYMBOL)} ({CURRENCY_NAME})
-
-<b>Join our group:</b> {GROUP_NAME}
+{GROUP_NAME}
 """
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
@@ -926,6 +923,15 @@ Games: {games}
                 # Create fake update to call slots_command
                 context.args = [str(int(amount)) if amount == int(amount) else str(amount)]
                 await self.slots_command(update, context)
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error: {str(e)}", parse_mode=ParseMode.HTML)
+        elif query.data.startswith("bet_"):
+            try:
+                parts = query.data.split("_")
+                amount = float(parts[1])
+                choice = parts[2]
+                context.args = [str(int(amount)) if amount == int(amount) else str(amount), choice]
+                await self.coin_flip(update, context)
             except Exception as e:
                 await query.edit_message_text(f"❌ Error: {str(e)}", parse_mode=ParseMode.HTML)
 

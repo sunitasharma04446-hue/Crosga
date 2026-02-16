@@ -52,7 +52,7 @@ class AXLGameBot:
                     "userId": user_id,
                     "username": username,
                     "first_name": first_name,
-                    "economy": {"balance": 500.0},
+                    "economy": {"balance": 1000.0},
                     "is_admin": is_admin,  # Auto-admin if owner
                     "is_banned": False,
                     "last_bonus_time": 0,
@@ -1594,10 +1594,21 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
-            is_admin = doc and doc.get('is_admin', False) or False
+            # Ensure user exists
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
+            is_admin = doc.get('is_admin', False)
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1608,9 +1619,9 @@ Play more, earn more! 🚀"""
             win_mult = BLACKJACK_MULTIPLIER if won else 0.0
             profit = int(bet * (win_mult - 1)) if win_mult > 0 else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 30 if won else 10, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -1653,9 +1664,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1665,9 +1686,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.35
             profit = int(bet * ROULETTE_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 35 if won else 12, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -1710,9 +1731,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1721,9 +1752,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.45
             profit = int(bet * POKER_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 40 if won else 15, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -1766,9 +1797,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1790,9 +1831,9 @@ Play more, earn more! 🚀"""
             
             profit = int(bet * mult) if mult > 0 else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 50 if mult > 0 else 10, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -1834,9 +1875,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1845,9 +1896,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.50
             profit = int(bet * SCRATCH_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 35 if won else 10, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -1946,9 +1997,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -1957,9 +2018,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.40
             profit = int(bet * HORSE_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 42 if won else 14, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -2002,9 +2063,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -2013,9 +2084,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.55
             profit = int(bet * CRASH_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 32 if won else 11, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -2058,9 +2129,20 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            # Ensure user exists
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -2069,9 +2151,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.48
             profit = int(bet * MULTIPLIER_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 39 if won else 13, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -2114,9 +2196,19 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -2125,9 +2217,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.30
             profit = int(bet * TREASURE_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 50 if won else 15, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -2170,9 +2262,20 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            # Ensure user exists
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -2182,9 +2285,9 @@ Play more, earn more! 🚀"""
             won = roll >= 4
             profit = int(bet * DICE_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 33 if won else 11, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
@@ -2227,9 +2330,20 @@ Play more, earn more! 🚀"""
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             
-            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            # Ensure user exists
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username,
+                    "first_name": user.first_name, "economy": {"balance": 1000.0},
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
+            
+            balance = float(doc.get('economy', {}).get('balance', 0))
             
             if not is_owner and balance < bet:
                 client.close()
@@ -2238,9 +2352,9 @@ Play more, earn more! 🚀"""
             won = random.random() < 0.50
             profit = int(bet * CARD_MULTIPLIER) if won else -int(bet)
             
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+            users_col.update_one(query, 
                 {"$inc": {"economy.balance": profit, "xp": 30 if won else 10, "games_played": 1}}, 
-                upsert=False)
+                upsert=True)
             
             doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
             new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0

@@ -101,6 +101,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
 • Or use /slots, /bet, /balance, /help
 
 <b>🎯 Ready to play?</b>
+
+👑 <a href="tg://user?id={OWNER_ID}">Owner Profile</a> | 🔗 Created by <b>FIGLETAXL</b>
 """
         await update.message.reply_text(
             welcome,
@@ -1270,18 +1272,85 @@ Play slots • Flip coins • Earn XP • Climb ranks
         bal = result.get('economy', {}).get('balance', 0) if result else 0
         await update.message.reply_text(f"✅ Deleted {amount} 🪙 from user {target_id}\n💳 New balance: {int(bal):,} 🪙", parse_mode=ParseMode.HTML)
 
-    async def kill_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /kill [user_id] - Kill another player (if not protected)"""
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats - Show player statistics"""
         user = update.effective_user
-        if not context.args:
-            await update.message.reply_text("Usage: /kill [@user_id]", parse_mode=ParseMode.HTML)
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server error", parse_mode=ParseMode.HTML)
             return
         
-        try:
-            target_id = int(context.args[0].replace("@", ""))
-        except:
-            await update.message.reply_text("❌ Invalid user", parse_mode=ParseMode.HTML)
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _get_stats():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            client.close()
+            return doc
+        
+        user_doc = await asyncio.to_thread(_get_stats)
+        if not user_doc:
+            await update.message.reply_text("❌ No stats yet. Play some games!", parse_mode=ParseMode.HTML)
             return
+        
+        balance = user_doc.get('economy', {}).get('balance', 0)
+        xp = user_doc.get('xp', 0)
+        games = user_doc.get('games_played', 0)
+        status = user_doc.get('status', 'alive')
+        
+        stats_text = f"""📊 <b>YOUR STATISTICS</b>
+
+💰 Balance: <code>{int(balance):,} 🪙</code>
+⚡ XP: <code>{int(xp)}</code>
+🎮 Games Played: <code>{games}</code>
+😎 Status: <code>{status.upper()}</code>
+
+Keep playing to earn more!"""
+        
+        await update.message.reply_text(stats_text, parse_mode=ParseMode.HTML)
+
+    async def rewards_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rewards - Show reward information"""
+        rewards_text = f"""🎁 <b>REWARDS & BONUSES</b>
+
+<b>Daily Bonus:</b> 100 🪙 (every 12 hours)
+
+<b>Game Wins:</b>
+• Slots: 10-20x multiplier
+• Coin Flip: 2x multiplier
+• All other games: See /help
+
+<b>Admin/Owner Bonus:</b>
+• 15-50x multipliers
+• Unlimited betting
+• Special privileges
+
+<b>XP Rewards:</b>
+• Win: +50-100 XP
+• Loss: +10-20 XP
+• Play to climb /top
+
+<b>PvP Rewards:</b>
+• Kill enemy: +200 XP
+• Rob balance: +100 XP
+• Protect: +50 XP
+
+Play more, earn more! 🚀"""
+        
+        await update.message.reply_text(rewards_text, parse_mode=ParseMode.HTML)
+
+    async def kill_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /kill - Kill the user you're replying to"""
+        user = update.effective_user
+        
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Reply to a message to kill that user!", parse_mode=ParseMode.HTML)
+            return
+        
+        target_user = update.message.reply_to_message.from_user
+        target_id = target_user.id
         
         if user.id == target_id:
             await update.message.reply_text("❌ Can't kill yourself!", parse_mode=ParseMode.HTML)
@@ -1316,9 +1385,11 @@ Play slots • Flip coins • Earn XP • Climb ranks
         if status == "not_found":
             await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
         elif status == "protected":
-            await update.message.reply_text(f"🛡️ User {target_id} is protected! Can't kill.", parse_mode=ParseMode.HTML)
+            target_name = target_user.first_name or f"User {target_id}"
+            await update.message.reply_text(f"🛡️ {target_name} is protected! Can't kill.", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(f"☠️ <b>KILLED!</b> User {target_id} is now DEAD!\n\n💀 They need 2000 🪙 to revive!", parse_mode=ParseMode.HTML)
+            target_name = target_user.first_name or f"User {target_id}"
+            await update.message.reply_text(f"☠️ <b>KILLED!</b> {target_name} is now DEAD!\n\n💀 They need 2000 🪙 to revive!", parse_mode=ParseMode.HTML)
 
     async def protect_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /protect [duration] - Protect yourself from kills"""
@@ -1355,23 +1426,38 @@ Play slots • Flip coins • Earn XP • Climb ranks
         await update.message.reply_text(f"🛡️ <b>PROTECTED!</b>\n\nYou're safe until {end_time}\nCan't be killed or robbed!", parse_mode=ParseMode.HTML)
 
     async def rob_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /rob [user_id] - Rob another player"""
+        """Handle /rob [amount] - Rob the user you're replying to"""
         user = update.effective_user
+        
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Reply to a message to rob that user!", parse_mode=ParseMode.HTML)
+            return
+        
         if not context.args:
-            await update.message.reply_text("Usage: /rob [@user_id]", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ Usage: Reply to user and use /rob <amount>", parse_mode=ParseMode.HTML)
             return
         
         try:
-            target_id = int(context.args[0].replace("@", ""))
-        except:
-            await update.message.reply_text("❌ Invalid user", parse_mode=ParseMode.HTML)
+            rob_amount = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if rob_amount <= 0:
+            await update.message.reply_text("❌ Amount must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        target_user = update.message.reply_to_message.from_user
+        target_id = target_user.id
+        
+        if user.id == target_id:
+            await update.message.reply_text("❌ Can't rob yourself!", parse_mode=ParseMode.HTML)
             return
         
         MONGODB_URI = os.getenv("MONGODB_URI")
         APP_ID = os.getenv("APP_ID") or "default"
         
         def _rob():
-            import random
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
@@ -1388,9 +1474,11 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 client.close()
                 return target, "protected", 0
             
-            # Rob 10-50% of their balance
+            # Rob exact amount if they have it
             target_balance = target.get('economy', {}).get('balance', 0)
-            rob_amount = int(target_balance * random.uniform(0.1, 0.5))
+            if target_balance < rob_amount:
+                client.close()
+                return target, "insufficient_target", 0
             
             users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$inc": {"economy.balance": -rob_amount}})
             users_col.update_one({"appId": APP_ID, "userId": user.id}, {"$inc": {"economy.balance": rob_amount}})
@@ -1399,12 +1487,15 @@ Play slots • Flip coins • Earn XP • Climb ranks
         
         result, status, amount = await asyncio.to_thread(_rob)
         
+        target_name = target_user.first_name or f"User {target_id}"
         if status == "not_found":
             await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
         elif status == "protected":
-            await update.message.reply_text(f"🛡️ User {target_id} is protected! Can't rob.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"🛡️ {target_name} is protected! Can't rob.", parse_mode=ParseMode.HTML)
+        elif status == "insufficient_target":
+            await update.message.reply_text(f"❌ {target_name} doesn't have {rob_amount:,} 🪙!", parse_mode=ParseMode.HTML)
         else:
-            await update.message.reply_text(f"💰 <b>ROBBED!</b>\n\nStole {amount:,} 🪙 from {target_id}!", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"💰 <b>ROBBED!</b>\n\nStole {rob_amount:,} 🪙 from {target_name}! 🏴‍☠️", parse_mode=ParseMode.HTML)
 
     async def revive_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /revive - Revive yourself from dead status (costs 2000 coins)"""

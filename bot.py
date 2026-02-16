@@ -5,6 +5,8 @@ Advanced casino gaming bot with slots, balance, leaderboard, and more!
 
 import os
 import logging
+import html
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -75,26 +77,24 @@ class AXLGameBot:
 
         leaderboard_data = db.get_leaderboard(10)
 
-        leaderboard_text = f"""
-╔━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╗
-║ 🏆 **TOP 10 PLAYERS** 🏆
-╚━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╝
-
-"""
+        # Build HTML message with clickable links to profiles
+        leaderboard_text = '<b>🏆 TOP 10 PLAYERS</b>\n\n'
         for idx, user in enumerate(leaderboard_data, 1):
             rank_emoji = ["🥇", "🥈", "🥉"][idx-1] if idx <= 3 else f"{idx}️⃣"
 
-            if user['username']:
-                player_link = f"@{user['username']}"
+            if user.get('username'):
+                link = f"https://t.me/{html.escape(user['username'])}"
+                display = f"@{html.escape(user['username'])}"
             else:
-                player_link = f"[Profile](tg://user?id={user['user_id']})"
+                link = f"tg://user?id={user['user_id']}"
+                display = html.escape(user.get('first_name') or f"User {user['user_id']}")
 
-            display_name = user['username'] if user['username'] else user['first_name'] or f"User {user['user_id']}"
-            leaderboard_text += f"{rank_emoji} **{display_name}** → `{user['balance']}{CURRENCY_SYMBOL}`\n"
+            balance_html = html.escape(str(user['balance'])) + html.escape(CURRENCY_SYMBOL)
+            leaderboard_text += f"{rank_emoji} <a href=\"{link}\">{display}</a> → <code>{balance_html}</code>\n"
 
-        leaderboard_text += f"\n*Join {GROUP_NAME} and start playing!*"
+        leaderboard_text += f"\nJoin {html.escape(GROUP_NAME)} and start playing!"
 
-        await update.message.reply_text(leaderboard_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(leaderboard_text, parse_mode=ParseMode.HTML)
 
     async def bonus(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /bonus command"""
@@ -181,6 +181,14 @@ class AXLGameBot:
 
         # Play game
         await update.message.chat.send_action(ChatAction.TYPING)
+
+        # Send a pre-spin emoji (slot machine) to simulate the spin
+        try:
+            await update.message.reply_text(JACKPOT_EMOJI)
+            await asyncio.sleep(1)
+        except Exception:
+            # Ignore if sending emoji fails
+            pass
 
         game_result = slots_game.play(bet_amount)
 

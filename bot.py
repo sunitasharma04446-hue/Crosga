@@ -281,25 +281,37 @@ class AXLGameBot:
                 users_col = mongo_db['users']
                 query = {"appId": APP_ID, "userId": uid}
                 
-                if change != 0:
-                    update = {"$setOnInsert": {"economy": {"balance": 500.0}, "userId": uid}, "$inc": {"economy.balance": change}}
-                    doc_after = users_col.find_one_and_update(query, update, upsert=True, return_document=ReturnDocument.AFTER)
-                    before_bal = float(doc_after.get("economy", {}).get("balance", 0)) - change
-                    new_bal = float(doc_after.get("economy", {}).get("balance", 0))
-                else:
-                    doc = users_col.find_one(query)
-                    if not doc:
-                        if create_if_missing:
-                            users_col.insert_one({"appId": APP_ID, "userId": uid, "username": getattr(user_obj, 'username', None), "first_name": getattr(user_obj, 'first_name', None), "economy": {"balance": 500.0}})
-                            doc = users_col.find_one(query)
-                        else:
-                            client.close()
-                            return None, None
-                    before_bal = float(doc.get("economy", {}).get("balance", 0))
-                    new_bal = before_bal
+                # Always try to increment first (without upsert to avoid conflicts)
+                result = users_col.update_one(
+                    query,
+                    {"$inc": {"economy.balance": change}} if change != 0 else {},
+                    upsert=False
+                )
+                
+                # If no document was updated, create it
+                if result.matched_count == 0:
+                    new_balance = 500.0 + change if change != 0 else 500.0
+                    users_col.insert_one({
+                        "appId": APP_ID,
+                        "userId": uid,
+                        "username": getattr(user_obj, 'username', None),
+                        "first_name": getattr(user_obj, 'first_name', None),
+                        "economy": {"balance": new_balance},
+                        "is_admin": False,
+                        "is_banned": False
+                    })
+                
+                # Fetch the document to get current balance
+                doc = users_col.find_one(query)
+                if not doc:
+                    client.close()
+                    return None, None
+                
+                current_bal = float(doc.get("economy", {}).get("balance", 0))
+                before_bal = current_bal - change if change != 0 else current_bal
                 
                 client.close()
-                return before_bal, new_bal
+                return before_bal, current_bal
             
             before, new = await asyncio.to_thread(_work)
             return before, new
@@ -444,13 +456,26 @@ class AXLGameBot:
                 client.close()
                 return sender_balance, None
             
-            # Perform transfer
+            # Perform transfer - deduct from sender
             users_col.update_one(sender_query, {"$inc": {"economy.balance": -amount}})
             sender_updated = users_col.find_one(sender_query)
             new_sender_balance = sender_updated.get('economy', {}).get('balance', 0)
             
+            # Add to target - try increment first
             target_query = {"appId": APP_ID, "userId": target_user.id}
-            users_col.update_one(target_query, {"$inc": {"economy.balance": amount}}, upsert=True)
+            result = users_col.update_one(target_query, {"$inc": {"economy.balance": amount}}, upsert=False)
+            
+            # If target doesn't exist, create them
+            if result.matched_count == 0:
+                users_col.insert_one({
+                    "appId": APP_ID,
+                    "userId": target_user.id,
+                    "username": target_user.username,
+                    "first_name": target_user.first_name,
+                    "economy": {"balance": amount},
+                    "is_admin": False,
+                    "is_banned": False
+                })
             
             client.close()
             return new_sender_balance, True
@@ -603,13 +628,23 @@ class AXLGameBot:
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
             query = {"appId": APP_ID, "userId": target_id}
-            result = users_col.find_one_and_update(
-                query,
-                {"$setOnInsert": {"economy": {"balance": 0.0}}, "$inc": {"economy.balance": amount}},
-                upsert=True,
-                return_document=ReturnDocument.AFTER
-            )
-            new_balance = result.get('economy', {}).get('balance', 0)
+            
+            # Try to increment first
+            result = users_col.update_one(query, {"$inc": {"economy.balance": amount}}, upsert=False)
+            
+            # If no document, create it
+            if result.matched_count == 0:
+                users_col.insert_one({
+                    "appId": APP_ID,
+                    "userId": target_id,
+                    "economy": {"balance": amount},
+                    "is_admin": False,
+                    "is_banned": False
+                })
+            
+            # Fetch and return final balance
+            doc = users_col.find_one(query)
+            new_balance = doc.get('economy', {}).get('balance', 0) if doc else 0
             client.close()
             return new_balance
         

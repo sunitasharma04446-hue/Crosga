@@ -294,8 +294,8 @@ class AXLGameBot:
             await update.message.reply_text(f"❌ Failed to send slot: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Wait exactly 4 seconds for animation
-        await asyncio.sleep(4)
+        # Wait for animation (ASYNC - reduced from 4 to 3.5 seconds)
+        await asyncio.sleep(3.5)
 
         # Get the dice value
         try:
@@ -366,28 +366,24 @@ class AXLGameBot:
                 await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Build result message
+        # Build result message - COMPACT & FAST
         user_name = html.escape(user.first_name or user.username or str(user.id))
         
         if multiplier > 0:
-            profit_text = int(net_change) if net_change == int(net_change) else f"{net_change:.2f}"
-            change_display = f"<code>+{profit_text}{html.escape(CURRENCY_SYMBOL)}</code>"
+            change_text = f"<code>+{int(net_change)}{html.escape(CURRENCY_SYMBOL)}</code>"
         else:
-            change_display = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
+            change_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
         
         details = (
-            f"<b>🎰 Slot Result</b>\n\n"
-            f"Player: <b>{user_name}</b>\n"
-            f"Status: <b>{result_type}</b>\n"
-            f"Dice: {dice_value}/64\n"
-            f"Change: {change_display}\n"
-            f"New Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
+            f"<b>{result_type}</b> | Value: {dice_value}\n"
+            f"Change: {change_text} | Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
         )
 
-        # Build keyboard
+        # Build keyboard - FAST BUTTONS
         keyboard = [
-            [InlineKeyboardButton("Play Again 🎰", callback_data=f"slots_play_{int(bet_amount)}")],
-            [InlineKeyboardButton("💳 Balance", callback_data="balance"), InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+            [InlineKeyboardButton("Again", callback_data=f"slots_play_{int(bet_amount)}"), 
+             InlineKeyboardButton("💳", callback_data="balance"), 
+             InlineKeyboardButton("🏆", callback_data="leaderboard")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 

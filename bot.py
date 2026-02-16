@@ -408,8 +408,8 @@ Games: {games}
             await update.message.reply_text(f"❌ Failed to send slot: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Wait for animation (ASYNC - reduced from 4 to 3.5 seconds)
-        await asyncio.sleep(3.5)
+        # Wait for animation (ULTRA FAST - 3s for instant feedback)
+        await asyncio.sleep(3)
 
         # Get the dice value
         try:
@@ -486,17 +486,13 @@ Games: {games}
                 await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Build result message - COMPACT & FAST
+        # Build result message - ULTRA COMPACT & FASTEST
         if multiplier > 0:
-            change_text = f"<code>+{int(net_change)}{html.escape(CURRENCY_SYMBOL)}</code>"
+            change_text = f"+{int(net_change)}"
         else:
-            change_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
+            change_text = f"-{int(bet_amount)}"
         
-        details = (
-            f"<b>{result_type}</b>\n"
-            f"Value: {dice_value} | Change: {change_text}\n"
-            f"XP: +{int(xp_gain)} | Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
-        )
+        details = f"<b>{result_type}</b>\n{change_text}{html.escape(CURRENCY_SYMBOL)} +{int(xp_gain)}XP → {int(new_balance)}{html.escape(CURRENCY_SYMBOL)}"
 
         # Build keyboard - FAST BUTTONS
         keyboard = [

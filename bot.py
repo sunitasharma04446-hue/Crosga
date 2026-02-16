@@ -251,18 +251,26 @@ class AXLGameBot:
             client.close()
             return {
                 "is_admin": doc and doc.get('is_admin', False),
-                "is_banned": doc and doc.get('is_banned', False)
-            } if doc else {"is_admin": False, "is_banned": False}
+                "is_banned": doc and doc.get('is_banned', False),
+                "balance": doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            } if doc else {"is_admin": False, "is_banned": False, "balance": 500.0}
         
-        user_status = await asyncio.to_thread(_get_user_status)
+        try:
+            user_status = await asyncio.to_thread(_get_user_status)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Database error: {str(e)}", parse_mode=ParseMode.HTML)
+            return
+        
         is_admin = user_status["is_admin"]
         is_banned = user_status["is_banned"]
+        current_balance = user_status["balance"]
         
         # Check if banned
         if is_banned and not is_owner:
             await update.message.reply_text("🚫 <b>You are banned!</b> Contact the owner.", parse_mode=ParseMode.HTML)
             return
         
+        # Check bet limits
         if not (is_owner or is_admin):
             if bet_amount < SLOTS_MIN_BET or bet_amount > SLOTS_MAX_BET:
                 await update.message.reply_text(
@@ -270,61 +278,11 @@ class AXLGameBot:
                     parse_mode=ParseMode.HTML
                 )
                 return
-        
-        # Helper to fetch and update balance using MongoDB
-        async def get_balance_and_update(user_obj, change: float = 0, create_if_missing: bool = False):
-            uid = user_obj.id if hasattr(user_obj, 'id') else int(user_obj)
-            
-            def _work():
-                client = MongoClient(MONGODB_URI)
-                mongo_db = client['artifacts']
-                users_col = mongo_db['users']
-                query = {"appId": APP_ID, "userId": uid}
-                
-                # Always try to increment first (without upsert to avoid conflicts)
-                result = users_col.update_one(
-                    query,
-                    {"$inc": {"economy.balance": change}} if change != 0 else {},
-                    upsert=False
-                )
-                
-                # If no document was updated, create it
-                if result.matched_count == 0:
-                    new_balance = 500.0 + change if change != 0 else 500.0
-                    users_col.insert_one({
-                        "appId": APP_ID,
-                        "userId": uid,
-                        "username": getattr(user_obj, 'username', None),
-                        "first_name": getattr(user_obj, 'first_name', None),
-                        "economy": {"balance": new_balance},
-                        "is_admin": False,
-                        "is_banned": False
-                    })
-                
-                # Fetch the document to get current balance
-                doc = users_col.find_one(query)
-                if not doc:
-                    client.close()
-                    return None, None
-                
-                current_bal = float(doc.get("economy", {}).get("balance", 0))
-                before_bal = current_bal - change if change != 0 else current_bal
-                
-                client.close()
-                return before_bal, current_bal
-            
-            before, new = await asyncio.to_thread(_work)
-            return before, new
 
-        # Fetch current balance
-        before_balance, _ = await get_balance_and_update(user, 0, create_if_missing=True)
-        if before_balance is None:
-            await update.message.reply_text("❌ Could not fetch your balance. Try again later.", parse_mode=ParseMode.HTML)
-            return
-
-        if before_balance < bet_amount and not (is_owner or is_admin):
+        # Check if has balance
+        if current_balance < bet_amount and not (is_owner or is_admin):
             await update.message.reply_text(
-                f"❌ Insufficient balance. You have {before_balance}{CURRENCY_SYMBOL}, bet: {bet_amount}{CURRENCY_SYMBOL}",
+                f"❌ Insufficient balance. You have {int(current_balance)}{html.escape(CURRENCY_SYMBOL)}, bet: {int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}",
                 parse_mode=ParseMode.HTML
             )
             return
@@ -333,7 +291,7 @@ class AXLGameBot:
         try:
             dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id)
         except Exception as e:
-            await update.message.reply_text(f"❌ Failed to send slot animation: {e}")
+            await update.message.reply_text(f"❌ Failed to send slot: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
         # Wait exactly 4 seconds for animation
@@ -341,67 +299,109 @@ class AXLGameBot:
 
         # Get the dice value
         try:
-            dice_value = getattr(dice_msg, 'dice').value
-        except Exception:
-            await dice_msg.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
+            dice_value = dice_msg.dice.value
+        except Exception as e:
+            try:
+                await dice_msg.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
+            except:
+                await update.message.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
             return
 
         # Determine result based on dice emoji value (1-64)
-        # 🎰 emoji: 64=jackpot, 55-63=big win, 30-54=win, 1-29=loss
-        multiplier = 0.0
-        result_type = "❌ LOSS"
-        
         if dice_value == 64:
-            # Perfect jackpot! All three slots match
             multiplier = 10.0
             result_type = "🎰🎰🎰 JACKPOT! 🎰🎰🎰"
         elif dice_value >= 55:
-            # Big win (high value combinations)
             multiplier = 5.0
             result_type = "💎 BIG WIN 💎"
         elif dice_value >= 30:
-            # Normal win (moderate combinations)
             multiplier = 3.0
             result_type = "✨ WIN ✨"
         else:
-            # Loss (low value)
             multiplier = 0.0
             result_type = "❌ LOSS"
 
-        # Calculate balance change
+        # Calculate net change
         if multiplier > 0:
             profit = bet_amount * (multiplier - 1)
             net_change = profit
-            amount_text = f"<code>+{int(profit)}{html.escape(CURRENCY_SYMBOL)}</code>" if profit == int(profit) else f"<code>+{profit:.2f}{html.escape(CURRENCY_SYMBOL)}</code>"
         else:
             net_change = -bet_amount
-            amount_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
 
-        # Update DB with net_change
-        before_bal_check, new_balance = await get_balance_and_update(user, net_change, create_if_missing=True)
+        # Update balance in MongoDB
+        def _update_balance():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            query = {"appId": APP_ID, "userId": user.id}
+            
+            # Try to increment
+            result = users_col.update_one(query, {"$inc": {"economy.balance": net_change}}, upsert=False)
+            
+            # If no match, create user
+            if result.matched_count == 0:
+                new_balance = 500.0 + net_change
+                users_col.insert_one({
+                    "appId": APP_ID,
+                    "userId": user.id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "economy": {"balance": new_balance},
+                    "is_admin": False,
+                    "is_banned": False
+                })
+            
+            # Fetch final balance
+            doc = users_col.find_one(query)
+            final_balance = float(doc.get("economy", {}).get("balance", 0)) if doc else 500.0
+            client.close()
+            return final_balance
+        
+        try:
+            new_balance = await asyncio.to_thread(_update_balance)
+        except Exception as e:
+            try:
+                await dice_msg.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
+            except:
+                await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
+            return
 
-        # Build result message (HTML)
+        # Build result message
         user_name = html.escape(user.first_name or user.username or str(user.id))
+        
+        if multiplier > 0:
+            profit_text = int(net_change) if net_change == int(net_change) else f"{net_change:.2f}"
+            change_display = f"<code>+{profit_text}{html.escape(CURRENCY_SYMBOL)}</code>"
+        else:
+            change_display = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
+        
         details = (
             f"<b>🎰 Slot Result</b>\n\n"
             f"Player: <b>{user_name}</b>\n"
-            f"Status: <b>{result_type}</b> (value: {dice_value})\n"
-            f"Change: {amount_text}\n"
+            f"Status: <b>{result_type}</b>\n"
+            f"Dice: {dice_value}/64\n"
+            f"Change: {change_display}\n"
             f"New Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
         )
 
-        # Build inline keyboard
+        # Build keyboard
         keyboard = [
             [InlineKeyboardButton("Play Again 🎰", callback_data=f"slots_play_{int(bet_amount)}")],
             [InlineKeyboardButton("💳 Balance", callback_data="balance"), InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Reply to dice message with the result (HTML) and inline buttons
+        # Send result
         try:
             await dice_msg.reply_text(details, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         except Exception:
-            await update.message.reply_text(details, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            try:
+                await update.message.reply_text(details, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            except Exception as e:
+                try:
+                    await update.message.reply_text(f"Result: {result_type} | Change: {change_display} | New Balance: {int(new_balance)}{html.escape(CURRENCY_SYMBOL)}", parse_mode=ParseMode.HTML)
+                except:
+                    pass
 
     async def send_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /send [amount] command"""

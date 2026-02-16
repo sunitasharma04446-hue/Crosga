@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from telegram.constants import ParseMode, ChatAction
 from pymongo import MongoClient, ReturnDocument
 
@@ -788,6 +788,36 @@ class AXLGameBot:
 
         await update.message.reply_text(admin_text, parse_mode=ParseMode.HTML)
 
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle all button clicks"""
+        query = update.callback_query
+        await query.answer()  # Delete loading state immediately
+        
+        if query.data == "balance":
+            await self.balance(update, context)
+        elif query.data == "leaderboard":
+            await self.leaderboard(update, context)
+        elif query.data == "bonus":
+            await self.bonus(update, context)
+        elif query.data == "slots_menu":
+            await query.edit_message_text(
+                text="🎰 <b>Slots Game</b>\n\nUse: <code>/slots [amount]</code>\n\nExample: <code>/slots 100</code>",
+                parse_mode=ParseMode.HTML
+            )
+        elif query.data == "send_menu":
+            await query.edit_message_text(
+                text="🤝 <b>Send Balance</b>\n\nReply to someone's message with: <code>/send [amount]</code>",
+                parse_mode=ParseMode.HTML
+            )
+        elif query.data.startswith("slots_play_"):
+            try:
+                amount = float(query.data.split("_")[2])
+                # Create fake update to call slots_command
+                context.args = [str(int(amount)) if amount == int(amount) else str(amount)]
+                await self.slots_command(update, context)
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error: {str(e)}", parse_mode=ParseMode.HTML)
+
     def setup(self):
         """Initialize the bot synchronously (register handlers)."""
         self.app = Application.builder().token(self.token).build()
@@ -807,6 +837,9 @@ class AXLGameBot:
         self.app.add_handler(CommandHandler("grant", self.grant_command))
         self.app.add_handler(CommandHandler("ban", self.ban_command))
         self.app.add_handler(CommandHandler("unban", self.unban_command))
+
+        # Button/Callback handlers (must be registered)
+        self.app.add_handler(CallbackQueryHandler(self.button_callback))
 
         logger.info("Bot setup complete!")
 

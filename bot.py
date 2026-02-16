@@ -90,17 +90,13 @@ class AXLGameBot:
         user_data = await self._create_or_get_user(user.id, user.username, user.first_name)
 
         balance = user_data.get('economy', {}).get('balance', 0)
-        winnings = user_data.get('total_winnings', 0)
-        losses = user_data.get('total_losses', 0)
+        xp = user_data.get('xp', 0)
         games = user_data.get('games_played', 0)
 
         balance_text = f"""
-<b>💳 YOUR BALANCE 💳</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Balance:</b> <code>{int(balance)}{html.escape(CURRENCY_SYMBOL)}</code>
-<b>Total Wins:</b> <code>{int(winnings)}{html.escape(CURRENCY_SYMBOL)}</code>
-<b>Total Losses:</b> <code>{int(losses)}{html.escape(CURRENCY_SYMBOL)}</code>
-<b>Games Played:</b> <code>{games}</code>
+<b>💳 BALANCE</b>
+<code>Coins: {int(balance)}{html.escape(CURRENCY_SYMBOL)} | XP: {int(xp)}</code>
+Games: {games}
 """
         await update.message.reply_text(balance_text, parse_mode=ParseMode.HTML)
 
@@ -211,9 +207,127 @@ class AXLGameBot:
                 parse_mode=ParseMode.HTML
             )
 
+    async def coin_flip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /bet [amount] [heads/tails] command - Coin Flip"""
+        import random
+        user = update.effective_user
+
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text("🪙 Usage: /bet <amount> <heads|tails>\nExample: /bet 100 heads", parse_mode=ParseMode.HTML)
+            return
+
+        try:
+            bet_amount = float(context.args[0])
+            choice = context.args[1].lower()
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ Invalid format!", parse_mode=ParseMode.HTML)
+            return
+
+        if bet_amount <= 0 or choice not in ["heads", "tails"]:
+            await update.message.reply_text("❌ Invalid amount or choice!", parse_mode=ParseMode.HTML)
+            return
+
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ DB error", parse_mode=ParseMode.HTML)
+            return
+
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+        is_owner = user.id == OWNER_ID
+
+        # Check user & balance FAST
+        def _check():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            client.close()
+            return doc if doc else {"economy": {"balance": 500.0}, "is_banned": False}
+
+        user_doc = await asyncio.to_thread(_check)
+        balance = float(user_doc.get("economy", {}).get("balance", 0))
+        
+        if user_doc.get("is_banned", False) and not is_owner:
+            await update.message.reply_text("🚫 Banned!", parse_mode=ParseMode.HTML)
+            return
+
+        if not (is_owner or balance >= bet_amount):
+            await update.message.reply_text(f"❌ Balance: {int(balance)}{html.escape(CURRENCY_SYMBOL)}", parse_mode=ParseMode.HTML)
+            return
+
+        # Flip coin
+        result = random.choice(["heads", "tails"])
+        won = result == choice
+        
+        # Update balance & XP FAST
+        xp_gain = COIN_FLIP_WIN_XP if won else COIN_FLIP_LOSS_XP
+        balance_change = bet_amount * COIN_FLIP_MULTIPLIER if won else -bet_amount
+
+        def _update():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            query = {"appId": APP_ID, "userId": user.id}
+            
+            result = users_col.update_one(query, {"$inc": {"economy.balance": balance_change, "xp": xp_gain, "games_played": 1}}, upsert=False)
+            if result.matched_count == 0:
+                users_col.insert_one({"appId": APP_ID, "userId": user.id, "username": user.username, "first_name": user.first_name, "economy": {"balance": 500.0 + balance_change}, "xp": xp_gain, "games_played": 1, "is_admin": False, "is_banned": False})
+            
+            doc = users_col.find_one(query)
+            return float(doc.get("economy", {}).get("balance", 0)) if doc else 500.0
+
+        new_bal = await asyncio.to_thread(_update)
+
+        # Result message FAST
+        result_emoji = "🎉" if won else "😢"
+        result_text = "Heads 🪙" if result == "heads" else "Tails 🪙"
+        change = f"+{int(balance_change)}{html.escape(CURRENCY_SYMBOL)}" if won else f"{int(balance_change)}{html.escape(CURRENCY_SYMBOL)}"
+        
+        msg = f"{result_emoji} {'WIN!' if won else 'LOSS'}\nChoice: {choice.title()} | Flip: {result_text}\nChange: {change} (+{int(xp_gain)} XP)\nBalance: {int(new_bal)}{html.escape(CURRENCY_SYMBOL)}"
+        
+        keyboard = [[InlineKeyboardButton("Again", callback_data=f"bet_{int(bet_amount)}_{choice}"), InlineKeyboardButton("💳", callback_data="balance")]]
+        
+        try:
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+        except:
+            pass
+
+    async def top_xp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /top command - Show top XP players"""
+        await update.message.chat.send_action(ChatAction.TYPING)
+
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ DB error", parse_mode=ParseMode.HTML)
+            return
+
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+
+        def _get_top():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            cursor = users_col.find({"appId": APP_ID}).sort([("xp", -1)]).limit(10)
+            results = list(cursor)
+            client.close()
+            return results
+
+        top_players = await asyncio.to_thread(_get_top)
+
+        msg = "<b>🏆 TOP 10 XP PLAYERS</b>\n\n"
+        for idx, player in enumerate(top_players, 1):
+            emoji = ["🥇", "🥈", "🥉"][idx-1] if idx <= 3 else f"{idx}️⃣"
+            name = player.get('username') or player.get('first_name') or "User"
+            xp = int(player.get('xp', 0))
+            bal = int(player.get('economy', {}).get('balance', 0))
+            msg += f"{emoji} {html.escape(name[:15])}: <code>{xp} XP | {bal}{html.escape(CURRENCY_SYMBOL)}</code>\n"
+
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
     async def slots_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /slots [amount] command"""
         user = update.effective_user
+
 
         # Validate amount
         if not context.args or len(context.args) == 0:
@@ -310,16 +424,20 @@ class AXLGameBot:
         # Determine result based on dice emoji value (1-64)
         if dice_value == 64:
             multiplier = 10.0
-            result_type = "🎰🎰🎰 JACKPOT! 🎰🎰🎰"
+            result_type = "🎰 JACKPOT 🎰"
+            xp_gain = SLOTS_WIN_XP
         elif dice_value >= 55:
             multiplier = 5.0
-            result_type = "💎 BIG WIN 💎"
+            result_type = "💎 BIG WIN"
+            xp_gain = SLOTS_WIN_XP
         elif dice_value >= 30:
             multiplier = 3.0
-            result_type = "✨ WIN ✨"
+            result_type = "✨ WIN"
+            xp_gain = SLOTS_WIN_XP
         else:
             multiplier = 0.0
             result_type = "❌ LOSS"
+            xp_gain = SLOTS_LOSS_XP
 
         # Calculate net change
         if multiplier > 0:
@@ -328,15 +446,15 @@ class AXLGameBot:
         else:
             net_change = -bet_amount
 
-        # Update balance in MongoDB
+        # Update balance in MongoDB (with XP)
         def _update_balance():
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
             query = {"appId": APP_ID, "userId": user.id}
             
-            # Try to increment
-            result = users_col.update_one(query, {"$inc": {"economy.balance": net_change}}, upsert=False)
+            # Try to increment balance AND xp
+            result = users_col.update_one(query, {"$inc": {"economy.balance": net_change, "xp": xp_gain, "games_played": 1}}, upsert=False)
             
             # If no match, create user
             if result.matched_count == 0:
@@ -347,6 +465,8 @@ class AXLGameBot:
                     "username": user.username,
                     "first_name": user.first_name,
                     "economy": {"balance": new_balance},
+                    "xp": xp_gain,
+                    "games_played": 1,
                     "is_admin": False,
                     "is_banned": False
                 })
@@ -367,16 +487,15 @@ class AXLGameBot:
             return
 
         # Build result message - COMPACT & FAST
-        user_name = html.escape(user.first_name or user.username or str(user.id))
-        
         if multiplier > 0:
             change_text = f"<code>+{int(net_change)}{html.escape(CURRENCY_SYMBOL)}</code>"
         else:
             change_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
         
         details = (
-            f"<b>{result_type}</b> | Value: {dice_value}\n"
-            f"Change: {change_text} | Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
+            f"<b>{result_type}</b>\n"
+            f"Value: {dice_value} | Change: {change_text}\n"
+            f"XP: +{int(xp_gain)} | Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>"
         )
 
         # Build keyboard - FAST BUTTONS
@@ -824,6 +943,8 @@ class AXLGameBot:
         self.app.add_handler(CommandHandler("leaderboard", self.leaderboard))
         self.app.add_handler(CommandHandler("bonus", self.bonus))
         self.app.add_handler(CommandHandler("slots", self.slots_command))
+        self.app.add_handler(CommandHandler("bet", self.coin_flip))
+        self.app.add_handler(CommandHandler("top", self.top_xp))
         self.app.add_handler(CommandHandler("send", self.send_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
 

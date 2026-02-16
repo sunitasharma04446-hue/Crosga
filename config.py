@@ -33,6 +33,17 @@ WIN_MULTIPLIER = 1.5  # 150% return
 BIG_WIN_MULTIPLIER = 3.0  # 300% return
 JACKPOT_MULTIPLIER = 10.0  # 1000% return
 
+# XP System
+SLOTS_WIN_XP = 50
+SLOTS_LOSS_XP = 10
+COIN_FLIP_WIN_XP = 30
+COIN_FLIP_LOSS_XP = 5
+
+# Coin Flip Settings
+COIN_FLIP_MIN_BET = 10
+COIN_FLIP_MAX_BET = 10000
+COIN_FLIP_MULTIPLIER = 2.0  # 2x on win
+
 # Messages
 WELCOME_MESSAGE = f"""
 🎮 **Welcome to {BOT_NAME}!** 🎮

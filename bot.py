@@ -75,21 +75,40 @@ class AXLGameBot:
         """Handle /leaderboard command"""
         await update.message.chat.send_action(ChatAction.TYPING)
 
-        leaderboard_data = db.get_leaderboard(10)
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server not configured: MONGODB_URI is missing.", parse_mode=ParseMode.HTML)
+            return
 
-        # Build HTML message with clickable links to profiles
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+
+        from pymongo import MongoClient
+
+        def _get_top():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            cursor = users_col.find({"appId": APP_ID}).sort([("economy.balance", -1)]).limit(10)
+            results = list(cursor)
+            client.close()
+            return results
+
+        leaderboard_data = await asyncio.to_thread(_get_top)
+
         leaderboard_text = '<b>🏆 TOP 10 PLAYERS</b>\n\n'
         for idx, user in enumerate(leaderboard_data, 1):
             rank_emoji = ["🥇", "🥈", "🥉"][idx-1] if idx <= 3 else f"{idx}️⃣"
-
-            if user.get('username'):
-                link = f"https://t.me/{html.escape(user['username'])}"
-                display = f"@{html.escape(user['username'])}"
+            username = user.get('username')
+            user_id = user.get('userId')
+            first_name = user.get('first_name')
+            display = f"@{html.escape(username)}" if username else html.escape(first_name or f"User {user_id}")
+            if username:
+                link = f"https://t.me/{html.escape(username)}"
             else:
-                link = f"tg://user?id={user['user_id']}"
-                display = html.escape(user.get('first_name') or f"User {user['user_id']}")
+                link = f"tg://user?id={user_id}"
 
-            balance_html = html.escape(str(user['balance'])) + html.escape(CURRENCY_SYMBOL)
+            balance_val = user.get('economy', {}).get('balance', 0)
+            balance_html = html.escape(str(balance_val)) + html.escape(CURRENCY_SYMBOL)
             leaderboard_text += f"{rank_emoji} <a href=\"{link}\">{display}</a> → <code>{balance_html}</code>\n"
 
         leaderboard_text += f"\nJoin {html.escape(GROUP_NAME)} and start playing!"
@@ -160,55 +179,44 @@ class AXLGameBot:
                 )
                 return
 
-        # Determine whether to use MongoDB or fallback to SQLite
+        # MongoDB only (no SQLite fallback)
         MONGODB_URI = os.getenv("MONGODB_URI")
-        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server not configured: MONGODB_URI is missing. Please contact the owner.", parse_mode=ParseMode.HTML)
+            return
+
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
 
         # Helper to fetch and update balance using pymongo (run in thread)
-        async def get_balance_and_update(user_id: int, change: float = 0, create_if_missing: bool = False):
-            # Returns (current_balance_before, new_balance_after)
-            if not MONGODB_URI:
-                # Fallback to sqlite
-                user_doc = db.get_or_create_user(user_id)
-                before = float(user_doc['balance'])
-                if change != 0:
-                    new = db.update_balance(user_id, change)
-                else:
-                    new = before
-                return before, new
+        async def get_balance_and_update(user_obj, change: float = 0, create_if_missing: bool = False):
+            # user_obj can be user id or telegram User object
+            uid = user_obj.id if hasattr(user_obj, 'id') else int(user_obj)
 
-            from pymongo import MongoClient
+            from pymongo import MongoClient, ReturnDocument
 
             def _work():
                 client = MongoClient(MONGODB_URI)
-                db_name = f"artifacts_{APP_ID}" if APP_ID else "axl_game_bot"
-                mongo_db = client[db_name]
-                users_col = mongo_db.get_collection("users")
+                mongo_db = client['artifacts']  # use short safe DB name
+                users_col = mongo_db['users']
 
-                # Try by _id numeric or by userId field
-                query = {"_id": user_id}
-                doc = users_col.find_one(query)
-                if not doc:
-                    query = {"userId": user_id}
-                    doc = users_col.find_one(query)
+                query = {"appId": APP_ID, "userId": uid}
 
-                if not doc:
-                    if create_if_missing:
-                        initial = 500.0
-                        doc = {"_id": user_id, "userId": user_id, "economy": {"balance": initial}}
-                        users_col.insert_one(doc)
-                    else:
-                        return None, None
-
-                before_bal = float(doc.get("economy", {}).get("balance", 0))
                 if change != 0:
-                    new_doc = users_col.find_one_and_update(
-                        {"_id": doc.get("_id")},
-                        {"$inc": {"economy.balance": change}},
-                        return_document=True
-                    )
-                    new_bal = float(new_doc.get("economy", {}).get("balance", 0))
+                    # Ensure document exists; use upsert and return AFTER
+                    update = {"$setOnInsert": {"economy": {"balance": 500.0}, "userId": uid}, "$inc": {"economy.balance": change}}
+                    doc_after = users_col.find_one_and_update(query, update, upsert=True, return_document=ReturnDocument.AFTER)
+                    before_bal = float(doc_after.get("economy", {}).get("balance", 0)) - change
+                    new_bal = float(doc_after.get("economy", {}).get("balance", 0))
                 else:
+                    doc = users_col.find_one(query)
+                    if not doc:
+                        if create_if_missing:
+                            users_col.update_one(query, {"$setOnInsert": {"economy": {"balance": 500.0}, "userId": uid, "username": user.username if hasattr(user, 'username') else None, "first_name": user.first_name if hasattr(user, 'first_name') else None}}, upsert=True)
+                            doc = users_col.find_one(query)
+                        else:
+                            client.close()
+                            return None, None
+                    before_bal = float(doc.get("economy", {}).get("balance", 0))
                     new_bal = before_bal
 
                 client.close()
@@ -218,7 +226,7 @@ class AXLGameBot:
             return before, new
 
         # Fetch current balance
-        before_balance, _ = await get_balance_and_update(user.id, 0, create_if_missing=True)
+        before_balance, _ = await get_balance_and_update(user, 0, create_if_missing=True)
         if before_balance is None:
             await update.message.reply_text("❌ Could not fetch your balance. Try again later.", parse_mode=ParseMode.HTML)
             return
@@ -269,7 +277,7 @@ class AXLGameBot:
             amount_text = f"+{int(profit)}{CURRENCY_SYMBOL}" if profit == int(profit) else f"+{profit:.2f}{CURRENCY_SYMBOL}"
 
         # Update DB with net_change
-        before_bal_check, new_balance = await get_balance_and_update(user.id, net_change, create_if_missing=True)
+        before_bal_check, new_balance = await get_balance_and_update(user, net_change, create_if_missing=True)
 
         # Build result message (HTML)
         user_name = html.escape(user.first_name or user.username or str(user.id))
@@ -281,11 +289,18 @@ class AXLGameBot:
             f"Balance: <b>{new_balance}{html.escape(CURRENCY_SYMBOL)}</b>"
         )
 
-        # Reply to dice message with the result
+        # Build inline keyboard
+        keyboard = [
+            [InlineKeyboardButton("Play Again 🎰", callback_data=f"slots_play_{int(bet_amount)}")],
+            [InlineKeyboardButton("💳 Balance", callback_data="balance"), InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Reply to dice message with the result (HTML) and inline buttons
         try:
-            await dice_msg.reply_text(f"{result_title}\n\n{details}", parse_mode=ParseMode.HTML)
+            await dice_msg.reply_text(f"{result_title}\n\n{details}", parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         except Exception:
-            await update.message.reply_text(f"{result_title}\n\n{details}", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"{result_title}\n\n{details}", parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     async def send_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /send [amount] command"""

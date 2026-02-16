@@ -430,94 +430,103 @@ Play slots • Flip coins • Earn XP • Climb ranks
             )
             return
 
-        # Send animated dice (slot emoji) and wait for animation
-            import random
-            # Compute result locally and reply instantly (result shown before emoji animation)
-            dice_value = random.randint(1, 64)
+        import random
+        
+        # Compute result locally - REAL GAME LOGIC
+        dice_value = random.randint(1, 64)
 
-            # Fire-and-forget dice animation for visual effect (not used for outcome)
-            try:
-                asyncio.create_task(context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id))
-            except Exception:
-                pass
+        # Fire-and-forget dice animation for visual effect (not used for outcome)
+        try:
+            asyncio.create_task(context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id))
+        except Exception:
+            pass
 
-            # Determine outcome using role-based multipliers (admins/owner much stronger)
-            if is_admin or is_owner:
-                # Admin/Owner: very generous multipliers
-                if dice_value == 64:
-                    multiplier = SLOTS_ADMIN_JACKPOT_MULTIPLIER
-                    result_type = "🎰 JACKPOT 🎰"
-                    xp_gain = SLOTS_WIN_XP * 3
-                elif dice_value >= 48:
-                    multiplier = SLOTS_ADMIN_BIG_MULTIPLIER
-                    result_type = "💎 BIG WIN"
-                    xp_gain = int(SLOTS_WIN_XP * 2)
-                elif dice_value >= 20:
-                    multiplier = SLOTS_ADMIN_WIN_MULTIPLIER
-                    result_type = "✨ WIN"
-                    xp_gain = SLOTS_WIN_XP * 2
-                elif dice_value >= 10:
-                    multiplier = 5.0
-                    result_type = "🎉 WIN!"
-                    xp_gain = int(SLOTS_WIN_XP * 1.5)
-                else:
-                    multiplier = 0.0
-                    result_type = "❌ LOSS"
-                    xp_gain = SLOTS_LOSS_XP
-            else:
-                # Regular users: high multipliers as requested (10-20x)
-                if dice_value == 64:
-                    multiplier = SLOTS_USER_JACKPOT_MULTIPLIER
-                    result_type = "🎰 JACKPOT 🎰"
-                    xp_gain = SLOTS_WIN_XP * 2
-                elif dice_value >= 48:
-                    multiplier = SLOTS_USER_BIG_MULTIPLIER
-                    result_type = "💎 BIG WIN"
-                    xp_gain = int(SLOTS_WIN_XP * 1.5)
-                elif dice_value >= 20:
-                    multiplier = SLOTS_USER_WIN_MULTIPLIER
-                    result_type = "✨ WIN"
-                    xp_gain = SLOTS_WIN_XP
-                elif dice_value >= 10:
-                    multiplier = 5.0
-                    result_type = "🎉 WIN!"
-                    xp_gain = int(SLOTS_WIN_XP * 0.5)
-                else:
-                    multiplier = 0.0
-                    result_type = "❌ LOSS"
-                    xp_gain = SLOTS_LOSS_XP
-
-        # Calculate net change
-        if multiplier > 0:
-            profit = bet_amount * (multiplier - 1)
-            net_change = profit
+        # Determine outcome using REAL role-based multipliers
+        multiplier = 0.0  # DEFAULT: loss
+        result_type = "❌ LOSS"
+        xp_gain = SLOTS_LOSS_XP
+        
+        if is_admin or is_owner:
+            # Admin/Owner: very generous multipliers (REAL ODDS)
+            if dice_value == 64:
+                multiplier = SLOTS_ADMIN_JACKPOT_MULTIPLIER
+                result_type = "🎰 JACKPOT 🎰"
+                xp_gain = SLOTS_WIN_XP * 3
+            elif dice_value >= 48:
+                multiplier = SLOTS_ADMIN_BIG_MULTIPLIER
+                result_type = "💎 BIG WIN"
+                xp_gain = int(SLOTS_WIN_XP * 2)
+            elif dice_value >= 20:
+                multiplier = SLOTS_ADMIN_WIN_MULTIPLIER
+                result_type = "✨ WIN"
+                xp_gain = SLOTS_WIN_XP * 2
+            elif dice_value >= 10:
+                multiplier = 5.0
+                result_type = "🎉 WIN!"
+                xp_gain = int(SLOTS_WIN_XP * 1.5)
         else:
-            net_change = -bet_amount
+            # Regular users: REAL high multipliers (40% win rate)
+            if dice_value == 64:  # 1.5% jackpot
+                multiplier = SLOTS_USER_JACKPOT_MULTIPLIER
+                result_type = "🎰 JACKPOT 🎰"
+                xp_gain = SLOTS_WIN_XP * 2
+            elif dice_value >= 48:  # 25% big win
+                multiplier = SLOTS_USER_BIG_MULTIPLIER
+                result_type = "💎 BIG WIN"
+                xp_gain = int(SLOTS_WIN_XP * 1.5)
+            elif dice_value >= 20:  # 43% win
+                multiplier = SLOTS_USER_WIN_MULTIPLIER
+                result_type = "✨ WIN"
+                xp_gain = SLOTS_WIN_XP
+            elif dice_value >= 10:  # Plus 9% medium win
+                multiplier = 5.0
+                result_type = "🎉 WIN!"
+                xp_gain = int(SLOTS_WIN_XP * 0.5)
 
-        # Update balance in MongoDB (with XP)
+        # Calculate net change - REAL CALCULATIONS
+        if multiplier > 0:
+            net_change = int(bet_amount * multiplier - bet_amount)  # Real profit calculation
+        else:
+            net_change = -int(bet_amount)  # Real loss
+
+        # Update balance in MongoDB with REAL logic
         def _update_balance():
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
             query = {"appId": APP_ID, "userId": user.id}
             
-            # Try to increment balance AND xp
-            result = users_col.update_one(query, {"$inc": {"economy.balance": net_change, "xp": xp_gain, "games_played": 1}}, upsert=False)
-            
-            # If no match, create user
-            if result.matched_count == 0:
-                new_balance = 500.0 + net_change
+            # Get current data before update
+            old_doc = users_col.find_one(query)
+            if not old_doc:
+                # Create new user
+                start_bal = max(0, 500.0 + net_change)
                 users_col.insert_one({
                     "appId": APP_ID,
                     "userId": user.id,
                     "username": user.username,
                     "first_name": user.first_name,
-                    "economy": {"balance": new_balance},
+                    "economy": {"balance": start_bal},
                     "xp": xp_gain,
                     "games_played": 1,
                     "is_admin": False,
-                    "is_banned": False
+                    "is_banned": False,
+                    "status": "alive",
+                    "protected_until": 0
                 })
+                return start_bal
+            
+            # Update existing user
+            result = users_col.update_one(
+                query, 
+                {
+                    "$inc": {
+                        "economy.balance": net_change, 
+                        "xp": xp_gain, 
+                        "games_played": 1
+                    }
+                }
+            )
             
             # Fetch final balance
             doc = users_col.find_one(query)
@@ -528,13 +537,10 @@ Play slots • Flip coins • Earn XP • Climb ranks
         try:
             new_balance = await asyncio.to_thread(_update_balance)
         except Exception as e:
-            try:
-                await dice_msg.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
-            except:
-                await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"❌ DB Error (slots): {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Build result message - BEAUTIFUL & INFORMATIVE
+        # Build result message - BEAUTIFUL with REAL data
         if multiplier > 0:
             change_text = f"✅ +{int(net_change)} 🪙"
         else:
@@ -542,17 +548,14 @@ Play slots • Flip coins • Earn XP • Climb ranks
         
         details = f"🎰 <b>{result_type}</b>\n\n{change_text}\n⚡ +{int(xp_gain)} XP\n💰 Balance: <code>{int(new_balance):,} 🪙</code>"
 
-        # Send result (no buttons - text only for /start users)
+        # Send result
         try:
-            await dice_msg.reply_text(details, parse_mode=ParseMode.HTML)
-        except Exception:
+            await update.message.reply_text(details, parse_mode=ParseMode.HTML)
+        except Exception as e:
             try:
-                await update.message.reply_text(details, parse_mode=ParseMode.HTML)
-            except Exception as e:
-                try:
-                    await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
-                except:
-                    pass
+                await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
+            except:
+                pass
 
     async def send_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /send [amount] command - Transfer 🪙 to others"""
@@ -726,7 +729,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
 ✓ Beautiful instant results
 
 {GROUP_NAME}"""
-        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Close", callback_data="close_help")]])
+        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
     async def set_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /setadmin [user_id] command - OWNER ONLY"""
@@ -1240,6 +1244,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
                      "• <code>/admin</code> - Admin panel",
                 parse_mode=ParseMode.HTML
             )
+        elif query.data == "close_help":
+            await query.delete_message()
 
     async def deletecoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /deletecoins - OWNER ONLY - Delete user's coins"""
@@ -1342,7 +1348,7 @@ Play more, earn more! 🚀"""
         await update.message.reply_text(rewards_text, parse_mode=ParseMode.HTML)
 
     async def kill_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /kill - Kill the user you're replying to"""
+        """Handle /kill - Kill the user you're replying to (REAL DB CONNECTION)"""
         user = update.effective_user
         
         if not update.message.reply_to_message:
@@ -1357,39 +1363,57 @@ Play more, earn more! 🚀"""
             return
         
         MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Database not configured", parse_mode=ParseMode.HTML)
+            return
+        
         APP_ID = os.getenv("APP_ID") or "default"
         
         def _kill():
-            client = MongoClient(MONGODB_URI)
-            mongo_db = client['artifacts']
-            users_col = mongo_db['users']
-            
-            target = users_col.find_one({"appId": APP_ID, "userId": target_id})
-            if not target:
+            try:
+                client = MongoClient(MONGODB_URI)
+                mongo_db = client['artifacts']
+                users_col = mongo_db['users']
+                
+                # Find target user
+                target = users_col.find_one({"appId": APP_ID, "userId": target_id})
+                if not target:
+                    client.close()
+                    return None, "not_found", None
+                
+                # Check if protected
+                protected_until = target.get('protected_until', 0)
+                current_time = int(datetime.now().timestamp())
+                
+                if current_time < protected_until:
+                    client.close()
+                    return target, "protected", 0
+                
+                # Kill the user (set status to dead)
+                users_col.update_one(
+                    {"appId": APP_ID, "userId": target_id}, 
+                    {"$set": {"status": "dead"}}
+                )
+                
+                # Return updated doc
+                updated = users_col.find_one({"appId": APP_ID, "userId": target_id})
                 client.close()
-                return None, "not_found"
-            
-            protected_until = target.get('protected_until', 0)
-            current_time = int(datetime.now().timestamp())
-            
-            if current_time < protected_until:
-                client.close()
-                return target, "protected"
-            
-            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$set": {"status": "dead"}})
-            client.close()
-            return target, "killed"
+                return updated, "killed", None
+            except Exception as e:
+                return None, "error", str(e)
         
-        result, status = await asyncio.to_thread(_kill)
+        result, status, error = await asyncio.to_thread(_kill)
+        
+        target_name = target_user.first_name or f"User {target_id}"
         
         if status == "not_found":
-            await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"❌ User {target_id} not found in database!", parse_mode=ParseMode.HTML)
         elif status == "protected":
-            target_name = target_user.first_name or f"User {target_id}"
             await update.message.reply_text(f"🛡️ {target_name} is protected! Can't kill.", parse_mode=ParseMode.HTML)
+        elif status == "error":
+            await update.message.reply_text(f"❌ Error: {error}", parse_mode=ParseMode.HTML)
         else:
-            target_name = target_user.first_name or f"User {target_id}"
-            await update.message.reply_text(f"☠️ <b>KILLED!</b> {target_name} is now DEAD!\n\n💀 They need 2000 🪙 to revive!", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"☠️ <b>KILLED!</b>\n\n{target_name} is now DEAD! 💀\nThey need 2000 🪙 to /revive", parse_mode=ParseMode.HTML)
 
     async def protect_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /protect [duration] - Protect yourself from kills"""

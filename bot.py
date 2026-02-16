@@ -272,9 +272,18 @@ Play slots • Flip coins • Earn XP • Climb ranks
             client = MongoClient(MONGODB_URI)
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
-            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            query = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query)
+            if not doc:
+                users_col.insert_one({
+                    "appId": APP_ID, "userId": user.id, "username": user.username, 
+                    "first_name": user.first_name, "economy": {"balance": 1000.0}, 
+                    "xp": 0, "games_played": 0, "is_admin": user.id == OWNER_ID, "is_banned": False,
+                    "status": "alive", "protected_until": 0
+                })
+                doc = users_col.find_one(query)
             client.close()
-            return doc if doc else {"economy": {"balance": 500.0}, "is_banned": False}
+            return doc if doc else {"economy": {"balance": 1000.0}, "is_banned": False}
 
         user_doc = await asyncio.to_thread(_check)
         balance = float(user_doc.get("economy", {}).get("balance", 0))
@@ -1376,10 +1385,24 @@ Play more, earn more! 🚀"""
                 users_col = mongo_db['users']
                 
                 # Find target user
-                target = users_col.find_one({"appId": APP_ID, "userId": target_id})
+                query = {"appId": APP_ID, "userId": target_id}
+                target = users_col.find_one(query)
                 if not target:
-                    client.close()
-                    return None, "not_found", None
+                    # Auto-create target with default balance so actions still work
+                    users_col.insert_one({
+                        "appId": APP_ID,
+                        "userId": target_id,
+                        "username": target_user.username if hasattr(target_user, 'username') else None,
+                        "first_name": target_user.first_name if hasattr(target_user, 'first_name') else None,
+                        "economy": {"balance": 1000.0},
+                        "xp": 0,
+                        "games_played": 0,
+                        "is_admin": False,
+                        "is_banned": False,
+                        "status": "alive",
+                        "protected_until": 0
+                    })
+                    target = users_col.find_one(query)
                 
                 # Check if protected
                 protected_until = target.get('protected_until', 0)
@@ -1390,13 +1413,10 @@ Play more, earn more! 🚀"""
                     return target, "protected", 0
                 
                 # Kill the user (set status to dead)
-                users_col.update_one(
-                    {"appId": APP_ID, "userId": target_id}, 
-                    {"$set": {"status": "dead"}}
-                )
-                
+                users_col.update_one(query, {"$set": {"status": "dead"}}, upsert=True)
+
                 # Return updated doc
-                updated = users_col.find_one({"appId": APP_ID, "userId": target_id})
+                updated = users_col.find_one(query)
                 client.close()
                 return updated, "killed", None
             except Exception as e:
@@ -1486,10 +1506,24 @@ Play more, earn more! 🚀"""
             mongo_db = client['artifacts']
             users_col = mongo_db['users']
             
-            target = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            # Ensure target exists (create with default balance so rob works)
+            t_query = {"appId": APP_ID, "userId": target_id}
+            target = users_col.find_one(t_query)
             if not target:
-                client.close()
-                return None, "not_found", 0
+                users_col.insert_one({
+                    "appId": APP_ID,
+                    "userId": target_id,
+                    "username": target_user.username if hasattr(target_user, 'username') else None,
+                    "first_name": target_user.first_name if hasattr(target_user, 'first_name') else None,
+                    "economy": {"balance": 1000.0},
+                    "xp": 0,
+                    "games_played": 0,
+                    "is_admin": False,
+                    "is_banned": False,
+                    "status": "alive",
+                    "protected_until": 0
+                })
+                target = users_col.find_one(t_query)
             
             protected_until = target.get('protected_until', 0)
             current_time = int(datetime.now().timestamp())
@@ -1497,17 +1531,20 @@ Play more, earn more! 🚀"""
             if current_time < protected_until:
                 client.close()
                 return target, "protected", 0
-            
-            # Rob exact amount if they have it
-            target_balance = target.get('economy', {}).get('balance', 0)
-            if target_balance < rob_amount:
+
+            # Rob up to available amount
+            target_balance = float(target.get('economy', {}).get('balance', 0))
+            amount_to_steal = min(rob_amount, int(target_balance))
+            if amount_to_steal <= 0:
                 client.close()
                 return target, "insufficient_target", 0
-            
-            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$inc": {"economy.balance": -rob_amount}})
-            users_col.update_one({"appId": APP_ID, "userId": user.id}, {"$inc": {"economy.balance": rob_amount}})
+
+            # Deduct from target and add to robber (ensure both docs exist)
+            users_col.update_one(t_query, {"$inc": {"economy.balance": -amount_to_steal}}, upsert=True)
+            r_query = {"appId": APP_ID, "userId": user.id}
+            users_col.update_one(r_query, {"$inc": {"economy.balance": amount_to_steal}}, upsert=True)
             client.close()
-            return target, "robbed", rob_amount
+            return target, "robbed", amount_to_steal
         
         result, status, amount = await asyncio.to_thread(_rob)
         

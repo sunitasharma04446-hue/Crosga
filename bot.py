@@ -664,21 +664,38 @@ Play slots • Flip coins • Earn XP • Climb ranks
 <b>╚════════════════════════════╝</b>
 
 <b>🎰 SLOTS GAME:</b>
-• Command: <code>/slots [amount]</code>
-• Min: 10 🪙 | Max: 10,000 🪙
-• Wins: 10x - 20x multipliers
-• Example: <code>/slots 100</code>
+• <code>/slots [amount]</code> - Roll the slots (10-20x win)
 
 <b>🪙 COIN FLIP:</b>
-• Command: <code>/bet [amount] [heads/tails]</code>
-• Min: 10 🪙 | Max: 10,000 🪙
-• Win: 2x multiplier
-• Example: <code>/bet 100 heads</code>
+• <code>/bet [amount] [heads/tails]</code> - Classic coin flip (2x win)
+
+<b>🎮 MORE GAMES (12 NEW):</b>
+• <code>/blackjack [amount]</code> - Get to 21! (1.5x)
+• <code>/roulette [amount]</code> - Lucky number (2.1x)
+• <code>/poker [amount]</code> - Card game (3x)
+• <code>/lucky [amount]</code> - Mystery number (50x max!)
+• <code>/scratch [amount]</code> - Scratch cards (5x)
+• <code>/wheel [amount]</code> - Spin wheel (3.5x)
+• <code>/horse [amount]</code> - Horse race (4x)
+• <code>/crash [amount]</code> - Cash out fast (2x)
+• <code>/multi [amount]</code> - Multiplier game (3x)
+• <code>/treasure [amount]</code> - Hunt treasure (10x)
+• <code>/dice [amount]</code> - Roll dice (2.5x)
+• <code>/flip [amount]</code> - Card flip (2x)
+
+<b>⚔️ PvP SYSTEM (NEW!):</b>
+• <code>/kill [@user]</code> - Eliminate enemy 💀
+• <code>/protect [duration]</code> - Shield yourself (24h default)
+• <code>/rob [@user]</code> - Steal coins from victims 🏴‍☠️
+• <code>/revive</code> - Come back to life (costs 2000 🪙)
+• Dead players can't earn - REVIVE NOW!
 
 <b>💎 ACCOUNT FEATURES:</b>
-• <code>/balance</code> - Your balance & XP
-• <code>/bonus</code> - Daily 100 ∆ (12h cooldown)
+• <code>/balance</code> or <code>/bal</code> - Your balance & XP
+• <code>/bonus</code> - Daily 100 🪙 (12h cooldown)
 • <code>/send [@user] [amount]</code> - Send balance
+• <code>/stats</code> - Your game statistics
+• <code>/rewards</code> - Reward info
 • <code>/top</code> - Top 10 XP players
 • <code>/leaderboard</code> - Top 100 by balance
 
@@ -693,17 +710,20 @@ Play slots • Flip coins • Earn XP • Climb ranks
 • <code>/admin</code> - Admin panel
 • <code>/setadmin [id]</code> - Make admin
 • <code>/grant [id] [amt]</code> - Give balance
+• <code>/deletecoins [user] [amt]</code> - Delete coins (owner)
 • <code>/ban [id]</code> - Ban player
 • <code>/unban [id]</code> - Unban player
 
-<b>💡 TIPS:</b>
-✓ Play games to earn XP & climb /top
-✓ Buttons on /start for quick access
-✓ Use /balance to check status anytime
-✓ Daily bonus every 12 hours!
+<b>💡 KEY FEATURES:</b>
+✓ No bet limits - play ANY amount!
+✓ 14 total games (2 core + 12 new)
+✓ PvP warfare system (kill/rob/protect)
+✓ Death/Revival mechanics
+✓ Play to earn XP & climb leaderboards
+✓ Daily bonus every 12 hours
+✓ Beautiful instant results
 
-{GROUP_NAME}
-"""
+{GROUP_NAME}"""
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
     async def set_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -475,18 +475,20 @@ class AXLGameBot:
 
         logger.info("Bot setup complete!")
 
-    async def run(self):
-        """Start the bot"""
-        await self.setup()
-        await self.app.initialize()
-        await self.app.start()
-        await self.app.updater.start_polling()
-        logger.info("🎮 AXL GAME BOT is running!")
+    def run(self):
+        """Start the bot (synchronous run for Application.run_polling)
 
-        try:
-            await self.app.updater.idle()
-        finally:
-            await self.app.stop()
+        Uses Application.run_polling() which manages lifecycle correctly
+        for python-telegram-bot v20.x on hosting platforms like Koyeb.
+        """
+        import asyncio
+
+        # Ensure setup (handler registration) is completed
+        asyncio.run(self.setup())
+
+        # Run polling (blocking) which handles initialize/start/stop lifecycle
+        logger.info("🎮 AXL GAME BOT is starting (run_polling)...")
+        self.app.run_polling()
 
 
 if __name__ == "__main__":
@@ -496,5 +498,4 @@ if __name__ == "__main__":
 
     bot = AXLGameBot(TELEGRAM_TOKEN)
 
-    import asyncio
-    asyncio.run(bot.run())
+    bot.run()

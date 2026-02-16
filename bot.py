@@ -453,8 +453,8 @@ class AXLGameBot:
 
         await update.message.reply_text(admin_text, parse_mode=ParseMode.MARKDOWN)
 
-    async def setup(self):
-        """Initialize the bot"""
+    def setup(self):
+        """Initialize the bot synchronously (register handlers)."""
         self.app = Application.builder().token(self.token).build()
 
         # Add handlers
@@ -465,7 +465,7 @@ class AXLGameBot:
         self.app.add_handler(CommandHandler("slots", self.slots_command))
         self.app.add_handler(CommandHandler("send", self.send_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
-        
+
         # Owner & Admin commands
         self.app.add_handler(CommandHandler("admin", self.admin_panel))
         self.app.add_handler(CommandHandler("setadmin", self.set_admin_command))
@@ -481,10 +481,8 @@ class AXLGameBot:
         Uses Application.run_polling() which manages lifecycle correctly
         for python-telegram-bot v20.x on hosting platforms like Koyeb.
         """
-        import asyncio
-
         # Ensure setup (handler registration) is completed
-        asyncio.run(self.setup())
+        self.setup()
 
         # Run polling (blocking) which handles initialize/start/stop lifecycle
         logger.info("🎮 AXL GAME BOT is starting (run_polling)...")

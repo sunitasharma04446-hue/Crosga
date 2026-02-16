@@ -410,8 +410,9 @@ Play slots • Flip coins • Earn XP • Climb ranks
             return {
                 "is_admin": doc and doc.get('is_admin', False),
                 "is_banned": doc and doc.get('is_banned', False),
-                "balance": doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
-            } if doc else {"is_admin": False, "is_banned": False, "balance": 500.0}
+                "balance": doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0,
+                "guaranteed_win": doc and doc.get('guaranteed_win', False) or False
+            } if doc else {"is_admin": False, "is_banned": False, "balance": 1000.0, "guaranteed_win": False}
         
         try:
             user_status = await asyncio.to_thread(_get_user_status)
@@ -422,6 +423,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
         is_admin = user_status["is_admin"]
         is_banned = user_status["is_banned"]
         current_balance = user_status["balance"]
+        guaranteed_win = user_status.get("guaranteed_win", False)
         
         # Check if banned
         if is_banned and not is_owner:
@@ -492,6 +494,12 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 result_type = "🎉 WIN!"
                 xp_gain = int(SLOTS_WIN_XP * 0.5)
 
+        # If owner granted guaranteed win, force a win
+        if guaranteed_win and multiplier <= 0:
+            multiplier = SLOTS_USER_WIN_MULTIPLIER
+            result_type = "🏅 GUARANTEED WIN!"
+            xp_gain = SLOTS_WIN_XP
+
         # Calculate net change - REAL CALCULATIONS
         if multiplier > 0:
             net_change = int(bet_amount * multiplier - bet_amount)  # Real profit calculation
@@ -509,7 +517,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
             old_doc = users_col.find_one(query)
             if not old_doc:
                 # Create new user
-                start_bal = max(0, 500.0 + net_change)
+                start_bal = max(0, 1000.0 + net_change)
                 users_col.insert_one({
                     "appId": APP_ID,
                     "userId": user.id,
@@ -865,6 +873,84 @@ Play slots • Flip coins • Earn XP • Climb ranks
             f"New Balance: <code>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</code>",
             parse_mode=ParseMode.HTML
         )
+
+    async def superwin_add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Owner-only: Grant a user guaranteed wins in slots (/superwin_add)."""
+        if update.effective_user.id != OWNER_ID:
+            await update.message.reply_text("❌ Only owner can use this command.", parse_mode=ParseMode.HTML)
+            return
+
+        # Support reply or user_id arg
+        if update.message.reply_to_message:
+            target = update.message.reply_to_message.from_user
+            target_id = target.id
+        elif context.args and len(context.args) >= 1:
+            try:
+                target_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("❌ Invalid user id.", parse_mode=ParseMode.HTML)
+                return
+        else:
+            await update.message.reply_text("❌ Usage: Reply to user or /superwin_add <user_id>", parse_mode=ParseMode.HTML)
+            return
+
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server not configured.", parse_mode=ParseMode.HTML)
+            return
+
+        APP_ID = os.getenv("APP_ID") or "default"
+
+        def _set():
+            client = MongoClient(MONGODB_URI)
+            users_col = client['artifacts']['users']
+            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$set": {"guaranteed_win": True}}, upsert=True)
+            doc = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            client.close()
+            return doc
+
+        doc = await asyncio.to_thread(_set)
+        name = doc.get('first_name') or doc.get('username') or str(target_id)
+        await update.message.reply_text(f"✅ {name} will now always win in /slots.", parse_mode=ParseMode.HTML)
+
+    async def superwin_remove(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Owner-only: Remove guaranteed wins from a user (/superwin_remove)."""
+        if update.effective_user.id != OWNER_ID:
+            await update.message.reply_text("❌ Only owner can use this command.", parse_mode=ParseMode.HTML)
+            return
+
+        # Support reply or user_id arg
+        if update.message.reply_to_message:
+            target = update.message.reply_to_message.from_user
+            target_id = target.id
+        elif context.args and len(context.args) >= 1:
+            try:
+                target_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("❌ Invalid user id.", parse_mode=ParseMode.HTML)
+                return
+        else:
+            await update.message.reply_text("❌ Usage: Reply to user or /superwin_remove <user_id>", parse_mode=ParseMode.HTML)
+            return
+
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server not configured.", parse_mode=ParseMode.HTML)
+            return
+
+        APP_ID = os.getenv("APP_ID") or "default"
+
+        def _unset():
+            client = MongoClient(MONGODB_URI)
+            users_col = client['artifacts']['users']
+            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$unset": {"guaranteed_win": ""}}, upsert=False)
+            doc = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            client.close()
+            return doc
+
+        doc = await asyncio.to_thread(_unset)
+        name = (doc.get('first_name') or doc.get('username') or str(target_id)) if doc else str(target_id)
+        await update.message.reply_text(f"✅ Removed guaranteed win from {name}.", parse_mode=ParseMode.HTML)
 
     async def ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /ban [user_id] command - OWNER ONLY"""
@@ -2453,6 +2539,9 @@ Play more, earn more! 🚀"""
         self.app.add_handler(CommandHandler("grant", self.grant_command))
         self.app.add_handler(CommandHandler("ban", self.ban_command))
         self.app.add_handler(CommandHandler("unban", self.unban_command))
+        # Owner-only superwin commands
+        self.app.add_handler(CommandHandler("superwin_add", self.superwin_add))
+        self.app.add_handler(CommandHandler("superwin_remove", self.superwin_remove))
 
         # Button/Callback handlers (must be registered)
         self.app.add_handler(CallbackQueryHandler(self.button_callback))

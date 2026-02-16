@@ -281,8 +281,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
             await update.message.reply_text("🚫 Banned!", parse_mode=ParseMode.HTML)
             return
 
-        if not (is_owner or balance >= bet_amount):
-            await update.message.reply_text(f"❌ Balance: {int(balance)}{html.escape(CURRENCY_SYMBOL)}", parse_mode=ParseMode.HTML)
+        if not is_owner and balance < bet_amount:
+            await update.message.reply_text(f"❌ Insufficient balance: {int(balance)}{html.escape(CURRENCY_SYMBOL)}", parse_mode=ParseMode.HTML)
             return
 
         # Flip coin
@@ -420,8 +420,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
         # Check bet limits - NO LIMITS for any user
         # Users can bet ANY amount (no min/max)
 
-        # Check if has balance
-        if current_balance < bet_amount and not (is_owner or is_admin):
+        # Check if has balance (ONLY OWNER can bet unlimited)
+        if current_balance < bet_amount and not is_owner:
             await update.message.reply_text(
                 f"❌ Insufficient balance. You have {int(current_balance)} 🪙, bet: {int(bet_amount)} 🪙",
                 parse_mode=ParseMode.HTML
@@ -1453,40 +1453,693 @@ Play slots • Flip coins • Earn XP • Climb ranks
 
     # GAME STUBS (12 new games - quick implementations)
     async def blackjack_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🃏 <b>BLACKJACK</b>\n\nUse: /blackjack [amount]\n\n🎯 Get 21 to win!\n🎰 Multiplier: 1.5x", parse_mode=ParseMode.HTML)
+        """Blackjack - Get 21 or bust"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🃏 Usage: /blackjack <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            is_admin = doc and doc.get('is_admin', False) or False
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            # Play blackjack (random 50% win rate for balance)
+            won = random.random() < 0.5
+            win_mult = BLACKJACK_MULTIPLIER if won else 0.0
+            profit = int(bet * (win_mult - 1)) if win_mult > 0 else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 30 if won else 10, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = "✅ WIN! +21" if status == "won" else "❌ BUST!"
+        await update.message.reply_text(f"🃏 <b>BLACKJACK</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def roulette_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🎡 <b>ROULETTE</b>\n\nUse: /roulette [amount]\n\nPick a number (0-36)!\n🎰 Multiplier: 2.1x", parse_mode=ParseMode.HTML)
+        """Roulette - Pick a number"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🎡 Usage: /roulette <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            # Roulette: 35/37 odds
+            won = random.random() < 0.35
+            profit = int(bet * ROULETTE_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 35 if won else 12, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ WIN! +{int(bet * ROULETTE_MULTIPLIER)}" if status == "won" else "❌ LOST!"
+        await update.message.reply_text(f"🎡 <b>ROULETTE</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def poker_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("♠️ <b>POKER</b>\n\nUse: /poker [amount]\n\nBeat the house!\n🎰 Multiplier: 3x", parse_mode=ParseMode.HTML)
+        """Poker - Beat the house"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("♠️ Usage: /poker <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.45
+            profit = int(bet * POKER_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 40 if won else 15, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ ROYAL FLUSH! +{int(bet * POKER_MULTIPLIER)}" if status == "won" else "❌ HOUSE WINS!"
+        await update.message.reply_text(f"♠️ <b>POKER</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def lucky_number_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🍀 <b>LUCKY NUMBER</b>\n\nUse: /lucky [amount]\n\nPrize: Up to 50x!\n🎰 Max win: 50x", parse_mode=ParseMode.HTML)
+        """Lucky Number - Max 50x win"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🍀 Usage: /lucky <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient", 0
+            
+            rand = random.random()
+            if rand < 0.02:  # 2% - jackpot 50x
+                mult = 50
+                msg = "🎉 JACKPOT 50x!"
+            elif rand < 0.08:  # 6% - big win 20x
+                mult = 20
+                msg = "💎 BIG WIN 20x!"
+            elif rand < 0.20:  # 12% - win 10x
+                mult = 10
+                msg = "✨ WIN 10x!"
+            else:  # 80% - lose
+                mult = 0
+                msg = "❌ NO LUCK"
+            
+            profit = int(bet * mult) if mult > 0 else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 50 if mult > 0 else 10, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, msg, profit
+        
+        new_balance, msg, profit = await asyncio.to_thread(_play)
+        
+        if msg == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        await update.message.reply_text(f"🍀 <b>LUCKY NUMBER</b>\n\n{msg}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def scratch_card_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🎫 <b>SCRATCH CARD</b>\n\nUse: /scratch [amount]\n\nScratch to reveal!\n🎰 Multiplier: 5x", parse_mode=ParseMode.HTML)
+        """Scratch Card - Instant reveal"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🎫 Usage: /scratch <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.50
+            profit = int(bet * SCRATCH_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 35 if won else 10, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ MATCH 3! +{int(bet * SCRATCH_MULTIPLIER)}" if status == "won" else "❌ NO MATCH"
+        await update.message.reply_text(f"🎫 <b>SCRATCH CARD</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def spin_wheel_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🎪 <b>SPIN WHEEL</b>\n\nUse: /wheel [amount]\n\nSpin and win!\n🎰 Multiplier: 3.5x", parse_mode=ParseMode.HTML)
+        """Spin Wheel - Classic wheel spin"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🎪 Usage: /wheel <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.45
+            profit = int(bet * WHEEL_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 38 if won else 12, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ JACKPOT! +{int(bet * WHEEL_MULTIPLIER)}" if status == "won" else "❌ BETTER LUCK NEXT!"
+        await update.message.reply_text(f"🎪 <b>SPIN WHEEL</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def horse_race_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🏇 <b>HORSE RACE</b>\n\nUse: /horse [amount]\n\nBet on your horse (1-8)!\n🎰 Multiplier: 4x", parse_mode=ParseMode.HTML)
+        """Horse Race - Pick winning horse"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🏇 Usage: /horse <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.40
+            profit = int(bet * HORSE_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 42 if won else 14, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ HORSE WON! +{int(bet * HORSE_MULTIPLIER)}" if status == "won" else "❌ HORSE LOST!"
+        await update.message.reply_text(f"🏇 <b>HORSE RACE</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def crash_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("📈 <b>CRASH</b>\n\nUse: /crash [amount]\n\nCash out before crash!\n🎰 Multiplier: 2x", parse_mode=ParseMode.HTML)
+        """Crash - Cash out before it crashes"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("📈 Usage: /crash <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.55
+            profit = int(bet * CRASH_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 32 if won else 11, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ CASHED OUT! +{int(bet * CRASH_MULTIPLIER)}" if status == "won" else "💥 CRASHED!"
+        await update.message.reply_text(f"📈 <b>CRASH</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def multiplier_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("📊 <b>MULTIPLIER</b>\n\nUse: /multi [amount]\n\nMultiplier grows!\n🎰 Multiplier: 3x", parse_mode=ParseMode.HTML)
+        """Multiplier Game - Growing multiplier"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("📊 Usage: /multi <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.48
+            profit = int(bet * MULTIPLIER_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 39 if won else 13, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ MULTIPLIED! +{int(bet * MULTIPLIER_MULTIPLIER)}" if status == "won" else "❌ COLLAPSED"
+        await update.message.reply_text(f"📊 <b>MULTIPLIER</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def treasure_hunt_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🏴‍☠️ <b>TREASURE HUNT</b>\n\nUse: /treasure [amount]\n\nHunt for treasure!\n🎰 Multiplier: 10x", parse_mode=ParseMode.HTML)
+        """Treasure Hunt - Find the treasure"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🏴‍☠️ Usage: /treasure <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.30
+            profit = int(bet * TREASURE_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 50 if won else 15, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"💰 TREASURE FOUND! +{int(bet * TREASURE_MULTIPLIER)}" if status == "won" else "❌ NO TREASURE"
+        await update.message.reply_text(f"🏴‍☠️ <b>TREASURE HUNT</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def dice_roll_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🎲 <b>DICE ROLL</b>\n\nUse: /dice [amount]\n\nRoll the dice!\n🎰 Multiplier: 2.5x", parse_mode=ParseMode.HTML)
+        """Dice Roll - Roll the dice"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🎲 Usage: /dice <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient", 0
+            
+            roll = random.randint(1, 6)
+            won = roll >= 4
+            profit = int(bet * DICE_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 33 if won else 11, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost", roll
+        
+        new_balance, status, roll = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ ROLLED {roll}! +{int(bet * DICE_MULTIPLIER)}" if status == "won" else f"❌ ROLLED {roll}!"
+        await update.message.reply_text(f"🎲 <b>DICE ROLL</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def card_flip_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🃏 <b>CARD FLIP</b>\n\nUse: /flip [amount]\n\nFlip cards!\n🎰 Multiplier: 2x", parse_mode=ParseMode.HTML)
+        """Card Flip - Match the cards"""
+        import random
+        user = update.effective_user
+        
+        if not context.args:
+            await update.message.reply_text("🃏 Usage: /flip <amount>", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            bet = float(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid amount", parse_mode=ParseMode.HTML)
+            return
+        
+        if bet <= 0:
+            await update.message.reply_text("❌ Bet must be > 0", parse_mode=ParseMode.HTML)
+            return
+        
+        is_owner = user.id == OWNER_ID
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _play():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            
+            balance = doc and float(doc.get('economy', {}).get('balance', 0)) or 0.0
+            
+            if not is_owner and balance < bet:
+                client.close()
+                return None, "insufficient"
+            
+            won = random.random() < 0.50
+            profit = int(bet * CARD_MULTIPLIER) if won else -int(bet)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, 
+                {"$inc": {"economy.balance": profit, "xp": 30 if won else 10, "games_played": 1}}, 
+                upsert=False)
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            new_bal = float(doc.get('economy', {}).get('balance', 0)) if doc else 0
+            client.close()
+            return new_bal, "won" if won else "lost"
+        
+        new_balance, status = await asyncio.to_thread(_play)
+        
+        if status == "insufficient":
+            await update.message.reply_text(f"❌ Insufficient balance", parse_mode=ParseMode.HTML)
+            return
+        
+        result = f"✅ MATCHED! +{int(bet * CARD_MULTIPLIER)}" if status == "won" else "❌ NO MATCH"
+        await update.message.reply_text(f"🃏 <b>CARD FLIP</b>\n\n{result}\n💰 Balance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     def setup(self):
         """Initialize the bot synchronously (register handlers)."""

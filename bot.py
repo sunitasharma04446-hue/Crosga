@@ -309,22 +309,26 @@ Play slots • Flip coins • Earn XP • Climb ranks
 
         new_bal = await asyncio.to_thread(_update)
 
-        # Result message BEAUTIFUL
+        # Result message - ULTRA DETAILED & BEAUTIFUL (matching slots format)
         result_emoji = "🎉" if won else "😢"
-        result_text = "Heads 🪙" if result == "heads" else "Tails 🪙"
-        change = f"+{int(balance_change)} ∆" if won else f"-{int(balance_change)} ∆"
         
-        msg = f"🪙 <b>{'WIN!' if won else 'LOSS'}</b>\n\n"
-        msg += f"You chose: <b>{choice.upper()}</b>\n"
-        msg += f"Result: <b>{result.upper()}</b>\n\n"
-        msg += f"{change}\n"
-        msg += f"⚡ +{int(xp_gain)} XP\n"
-        msg += f"💰 Balance: <code>{int(new_bal):,} ∆</code>"
+        if won:
+            change_text = f"✅ +{int(balance_change):,} 🪙"
+        else:
+            change_text = f"❌ -{int(bet_amount):,} 🪙"
+        
+        msg = f"""<b>{result_emoji} {'WIN!' if won else 'LOSS'}</b>
+
+🪙 <b>Your Choice:</b> <code>{choice.upper()}</code>
+🎲 <b>Flip Result:</b> <code>{result.upper()}</code>
+💰 <b>Won:</b> {change_text}
+📈 <b>+{int(xp_gain)} XP</b>
+💳 <b>New Balance:</b> <code>{int(new_bal):,} 🪙</code>"""
         
         try:
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-        except:
-            await update.message.reply_text(f"🪙 {'WIN!' if won else 'LOSS'} | {change} | Balance: {int(new_bal):,} ∆", parse_mode=ParseMode.HTML)
+        except Exception:
+            await update.message.reply_text(f"{result_emoji} {'WIN!' if won else 'LOSS'} | {change_text} | Balance: {int(new_bal):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def top_xp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /top command - Show top XP players"""
@@ -435,40 +439,45 @@ Play slots • Flip coins • Earn XP • Climb ranks
             )
             return
 
-        # Send animated dice (slot emoji) and wait for animation
+        # Send animated dice (slot emoji) - INSTANT RESULT (NO WAIT)
         try:
             dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id)
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to send slot: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Wait for animation (ULTRA FAST - 3s for instant feedback)
-        await asyncio.sleep(3)
+        # Mini delay for dice animation completion (telegram requirement - minimal)
+        await asyncio.sleep(0.5)
 
         # Get the dice value
         try:
             dice_value = dice_msg.dice.value
         except Exception as e:
-            try:
-                await dice_msg.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
-            except:
-                await update.message.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
             return
 
-        # Determine result based on dice emoji value (1-64) - IMPROVED WIN RATE
-        if dice_value == 64:
+        # Determine result based on dice emoji value (1-64) - WITH ADMIN/OWNER BOOST
+        # ADMIN/OWNER get 3x better odds!
+        boost = 3 if (is_admin or is_owner) else 1
+        boosted_value = min(64, dice_value * boost)  # Cap at 64 for fairness
+        
+        if boosted_value == 64 or dice_value == 64:
             multiplier = 10.0
             result_type = "🎰 JACKPOT 🎰"
-            xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 48:  # 48-64 = 17/64 for big wins (IMPROVED)
+            xp_gain = SLOTS_WIN_XP * 2
+        elif boosted_value >= 48:  # 48-64 = BIG WINS
             multiplier = 5.0
             result_type = "💎 BIG WIN"
-            xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 20:  # 20-47 = 28/64 for regular wins (IMPROVED)
+            xp_gain = int(SLOTS_WIN_XP * 1.5)
+        elif boosted_value >= 20:  # 20-47 = REGULAR WINS
             multiplier = 2.5
             result_type = "✨ WIN"
             xp_gain = SLOTS_WIN_XP
-        else:  # 1-19 = loss (much lower loss rate now!)
+        elif boosted_value >= 10:  # 10-19 = SMALL WINS for admin/owner
+            multiplier = 1.5
+            result_type = "🎉 WIN!"
+            xp_gain = int(SLOTS_WIN_XP * 0.5)
+        else:  # LOSS extremely rare for admin/owner
             multiplier = 0.0
             result_type = "❌ LOSS"
             xp_gain = SLOTS_LOSS_XP
@@ -520,25 +529,37 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Build result message - BEAUTIFUL & INFORMATIVE
+        # Build result message - ULTRA DETAILED & BEAUTIFUL
         if multiplier > 0:
-            change_text = f"✅ +{int(net_change)} ∆"
+            result_emoji = "🎉"
+            change_text = f"✅ +{int(net_change):,} 🪙"
+            won_text = "YES"
         else:
-            change_text = f"❌ -{int(bet_amount)} ∆"
+            result_emoji = "😢"
+            change_text = f"❌ -{int(bet_amount):,} 🪙"
+            won_text = "NO"
         
-        details = f"🎰 <b>{result_type}</b>\n\n{change_text}\n⚡ +{int(xp_gain)} XP\n💰 Balance: <code>{int(new_balance):,} ∆</code>"
+        # DETAILED MESSAGE WITH ALL INFO
+        details = f"""<b>{result_emoji} {result_type}</b>
 
-        # Send result (no buttons - text only for /start users)
+🎰 <b>Slot Value:</b> <code>{dice_value}</code>
+🎯 <b>Multiplier:</b> <code>{multiplier}x</code>
+💰 <b>Won:</b> {change_text}
+📈 <b>+{int(xp_gain)} XP</b>
+💳 <b>New Balance:</b> <code>{int(new_balance):,} 🪙</code>"""
+
+        # Add admin boost indicator
+        if is_admin or is_owner:
+            details += f"\n\n👑 <b>ADMIN BOOST ACTIVE</b> (+3x odds)"
+
+        # Send result with instant reply
         try:
             await dice_msg.reply_text(details, parse_mode=ParseMode.HTML)
         except Exception:
             try:
                 await update.message.reply_text(details, parse_mode=ParseMode.HTML)
             except Exception as e:
-                try:
-                    await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} ∆", parse_mode=ParseMode.HTML)
-                except:
-                    pass
+                await update.message.reply_text(f"{result_emoji} {result_type}\n{change_text}\nBalance: {int(new_balance):,} 🪙", parse_mode=ParseMode.HTML)
 
     async def send_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /send [amount] command"""
@@ -1207,6 +1228,95 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 parse_mode=ParseMode.HTML
             )
 
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command - Show user detailed statistics"""
+        user = update.effective_user
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+        
+        def _get_stats():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            if not doc:
+                return None
+            # Get rank by balance
+            rank = users_col.count_documents({"appId": APP_ID, "economy.balance": {"$gt": doc.get('economy', {}).get('balance', 0)}}) + 1
+            client.close()
+            return doc, rank
+        
+        result = await asyncio.to_thread(_get_stats)
+        if not result:
+            await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
+            return
+        
+        doc, rank = result
+        balance = doc.get('economy', {}).get('balance', 0)
+        xp = doc.get('xp', 0)
+        games = doc.get('games_played', 0)
+        is_owner = user.id == OWNER_ID
+        is_admin = doc.get('is_admin', False)
+        
+        stats_msg = f"""<b>📊 YOUR STATISTICS</b>
+
+╔════════════════════════════╗
+║   <b>ACCOUNT OVERVIEW</b>        ║
+╚════════════════════════════╝
+
+💳 <b>Balance:</b> <code>{int(balance):,} 🪙</code>
+⚡ <b>XP Level:</b> <code>{int(xp):,}</code>
+🎮 <b>Games Played:</b> <code>{games}</code>
+🏆 <b>Global Rank:</b> <code>#{rank}</code>
+
+👑 <b>Status:</b> <b>{'OWNER 👑' if is_owner else ('ADMIN 🛡️' if is_admin else 'User 👤')}</b>
+
+<b>🎯 Quick Stats:</b>
+• Avg Balance/Game: <code>{int(balance/max(games, 1)):,}</code> 🪙
+• XP/Game: <code>{int(xp/max(games, 1))}</code>
+
+💡 <i>Keep playing to climb the ranks!</i>
+"""
+        await update.message.reply_text(stats_msg, parse_mode=ParseMode.HTML)
+
+    async def rewards_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rewards command - Show reward system info"""
+        rewards_msg = f"""<b>🎁 REWARD SYSTEM</b>
+
+╔════════════════════════════╗
+║   <b>EARNING REWARDS</b>      ║
+╚════════════════════════════╝
+
+<b>🎰 SLOTS GAMES:</b>
+🎉 WIN: +100 XP + Multiplier rewards
+   • Regular: 2.5x bet
+   • Big Win: 5x bet
+   • JACKPOT: 10x bet
+😢 LOSS: +20 XP (still earn!)
+
+<b>🪙 COIN FLIP:</b>
+🎉 WIN: +60 XP + 2x bet
+😢 LOSS: +10 XP
+
+<b>💎 DAILY REWARDS:</b>
+🎁 /bonus - 100 🪙 every 12 hours
+⚡ Bonus Streak: Keep claiming!
+
+<b>👑 ADMIN/OWNER BENEFITS:</b>
+✨ 3x BETTER WIN ODDS on slots!
+💰 Unlimited bets (no restrictions)
+🌟 Double/Extra XP rewards
+🎕 Early access to new features
+
+<b>🏆 RANKING REWARDS:</b>
+Use /top to see top 10 players
+Use /leaderboard to see top 100
+Climb ranks = More prestige!
+
+💡 <b>Pro Tip:</b> Play both games for balanced XP growth!
+"""
+        await update.message.reply_text(rewards_msg, parse_mode=ParseMode.HTML)
+
     def setup(self):
         """Initialize the bot synchronously (register handlers)."""
         self.app = Application.builder().token(self.token).build()
@@ -1221,6 +1331,10 @@ Play slots • Flip coins • Earn XP • Climb ranks
         self.app.add_handler(CommandHandler("top", self.top_xp))
         self.app.add_handler(CommandHandler("send", self.send_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+        
+        # Advanced features 🎯
+        self.app.add_handler(CommandHandler("stats", self.stats_command))
+        self.app.add_handler(CommandHandler("rewards", self.rewards_command))
 
         # Owner & Admin commands
         self.app.add_handler(CommandHandler("owner", self.owner_panel))

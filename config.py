@@ -12,8 +12,8 @@ OWNER_ID = 8430369957  # Owner: Unlimited bets, all permissions, admin access
 ADMIN_IDS = [8430369957]  # List of admin user IDs - includes owner
 
 # Currency
-CURRENCY_SYMBOL = "∆"
-CURRENCY_NAME = "AXL"
+CURRENCY_SYMBOL = "🪙"
+CURRENCY_NAME = "AXL Coins"
 
 # Game Settings
 SLOTS_EMOJI = ["🍎", "🍌", "🍒", "🍷", "⭐", "💎", "🎯"]
@@ -26,10 +26,16 @@ SLOTS_MAX_BET = 10000
 DAILY_BONUS = 100
 BONUS_COOLDOWN = 12 * 3600  # 12 hours in seconds
 
-# Game Multipliers - IMPROVED WIN RATES
-WIN_MULTIPLIER = 2.5  # 250% return (improved)
-BIG_WIN_MULTIPLIER = 5.0  # 500% return (improved)
-JACKPOT_MULTIPLIER = 10.0  # 1000% return
+# Game Multipliers - USER and ADMIN tuned (very generous per request)
+# User multipliers (regular players)
+SLOTS_USER_WIN_MULTIPLIER = 10.0      # 10x return on regular win
+SLOTS_USER_BIG_MULTIPLIER = 15.0      # 15x return on big win
+SLOTS_USER_JACKPOT_MULTIPLIER = 20.0  # 20x return on jackpot
+
+# Admin/Owner multipliers (special boosted rewards)
+SLOTS_ADMIN_WIN_MULTIPLIER = 15.0     # 15x for admins
+SLOTS_ADMIN_BIG_MULTIPLIER = 25.0     # 25x for big wins
+SLOTS_ADMIN_JACKPOT_MULTIPLIER = 50.0 # 50x jackpot for owner/admin
 
 # XP System - BOOSTED REWARDS
 SLOTS_WIN_XP = 100  # Doubled

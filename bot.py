@@ -226,15 +226,12 @@ Play slots • Flip coins • Earn XP • Climb ranks
             hours = time_remaining // 3600
             minutes = (time_remaining % 3600) // 60
             await update.message.reply_text(
-                f"⏰ <b>Bonus Cooldown</b>\n\n"
-                f"Come back in <code>{hours}h {minutes}m</code> for your next bonus!",
+                f"⏰ <b>Bonus Cooldown</b>\n\nCome back in <code>{hours}h {minutes}m</code>!",
                 parse_mode=ParseMode.HTML
             )
         else:
             await update.message.reply_text(
-                f"🎁 <b>Daily Bonus Claimed!</b>\n\n"
-                f"You received <code>{DAILY_BONUS}{html.escape(CURRENCY_SYMBOL)}</code>\n"
-                f"New Balance: <b>{int(new_balance)}{html.escape(CURRENCY_SYMBOL)}</b>",
+                f"🎁 <b>BONUS CLAIMED!</b>\n\n✅ +{DAILY_BONUS} 🪙\n💳 Balance: <code>{int(new_balance):,} 🪙</code>",
                 parse_mode=ParseMode.HTML
             )
 
@@ -354,7 +351,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
             name = player.get('username') or player.get('first_name') or "User"
             xp = int(player.get('xp', 0))
             bal = int(player.get('economy', {}).get('balance', 0))
-            msg += f"{emoji} {html.escape(name[:15])}: <code>{xp} XP | {bal}{html.escape(CURRENCY_SYMBOL)}</code>\n"
+            msg += f"{emoji} {html.escape(name[:15])}: <code>{xp} XP | {bal:,} 🪙</code>\n"
 
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
@@ -422,7 +419,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
         if not (is_owner or is_admin):
             if bet_amount < SLOTS_MIN_BET or bet_amount > SLOTS_MAX_BET:
                 await update.message.reply_text(
-                    f"❌ Bet must be between {SLOTS_MIN_BET}{html.escape(CURRENCY_SYMBOL)} and {SLOTS_MAX_BET}{html.escape(CURRENCY_SYMBOL)}",
+                    f"❌ Bet must be between {SLOTS_MIN_BET} 🪙 and {SLOTS_MAX_BET} 🪙",
                     parse_mode=ParseMode.HTML
                 )
                 return
@@ -430,48 +427,67 @@ Play slots • Flip coins • Earn XP • Climb ranks
         # Check if has balance
         if current_balance < bet_amount and not (is_owner or is_admin):
             await update.message.reply_text(
-                f"❌ Insufficient balance. You have {int(current_balance)}{html.escape(CURRENCY_SYMBOL)}, bet: {int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}",
+                f"❌ Insufficient balance. You have {int(current_balance)} 🪙, bet: {int(bet_amount)} 🪙",
                 parse_mode=ParseMode.HTML
             )
             return
 
         # Send animated dice (slot emoji) and wait for animation
-        try:
-            dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Failed to send slot: {str(e)}", parse_mode=ParseMode.HTML)
-            return
+            import random
+            # Compute result locally and reply instantly (result shown before emoji animation)
+            dice_value = random.randint(1, 64)
 
-        # Wait for animation (ULTRA FAST - 3s for instant feedback)
-        await asyncio.sleep(3)
-
-        # Get the dice value
-        try:
-            dice_value = dice_msg.dice.value
-        except Exception as e:
+            # Fire-and-forget dice animation for visual effect (not used for outcome)
             try:
-                await dice_msg.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
-            except:
-                await update.message.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
-            return
+                asyncio.create_task(context.bot.send_dice(chat_id=update.effective_chat.id, emoji='🎰', reply_to_message_id=update.message.message_id))
+            except Exception:
+                pass
 
-        # Determine result based on dice emoji value (1-64) - IMPROVED WIN RATE
-        if dice_value == 64:
-            multiplier = 10.0
-            result_type = "🎰 JACKPOT 🎰"
-            xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 48:  # 48-64 = 17/64 for big wins (IMPROVED)
-            multiplier = 5.0
-            result_type = "💎 BIG WIN"
-            xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 20:  # 20-47 = 28/64 for regular wins (IMPROVED)
-            multiplier = 2.5
-            result_type = "✨ WIN"
-            xp_gain = SLOTS_WIN_XP
-        else:  # 1-19 = loss (much lower loss rate now!)
-            multiplier = 0.0
-            result_type = "❌ LOSS"
-            xp_gain = SLOTS_LOSS_XP
+            # Determine outcome using role-based multipliers (admins/owner much stronger)
+            if is_admin or is_owner:
+                # Admin/Owner: very generous multipliers
+                if dice_value == 64:
+                    multiplier = SLOTS_ADMIN_JACKPOT_MULTIPLIER
+                    result_type = "🎰 JACKPOT 🎰"
+                    xp_gain = SLOTS_WIN_XP * 3
+                elif dice_value >= 48:
+                    multiplier = SLOTS_ADMIN_BIG_MULTIPLIER
+                    result_type = "💎 BIG WIN"
+                    xp_gain = int(SLOTS_WIN_XP * 2)
+                elif dice_value >= 20:
+                    multiplier = SLOTS_ADMIN_WIN_MULTIPLIER
+                    result_type = "✨ WIN"
+                    xp_gain = SLOTS_WIN_XP * 2
+                elif dice_value >= 10:
+                    multiplier = 5.0
+                    result_type = "🎉 WIN!"
+                    xp_gain = int(SLOTS_WIN_XP * 1.5)
+                else:
+                    multiplier = 0.0
+                    result_type = "❌ LOSS"
+                    xp_gain = SLOTS_LOSS_XP
+            else:
+                # Regular users: high multipliers as requested (10-20x)
+                if dice_value == 64:
+                    multiplier = SLOTS_USER_JACKPOT_MULTIPLIER
+                    result_type = "🎰 JACKPOT 🎰"
+                    xp_gain = SLOTS_WIN_XP * 2
+                elif dice_value >= 48:
+                    multiplier = SLOTS_USER_BIG_MULTIPLIER
+                    result_type = "💎 BIG WIN"
+                    xp_gain = int(SLOTS_WIN_XP * 1.5)
+                elif dice_value >= 20:
+                    multiplier = SLOTS_USER_WIN_MULTIPLIER
+                    result_type = "✨ WIN"
+                    xp_gain = SLOTS_WIN_XP
+                elif dice_value >= 10:
+                    multiplier = 5.0
+                    result_type = "🎉 WIN!"
+                    xp_gain = int(SLOTS_WIN_XP * 0.5)
+                else:
+                    multiplier = 0.0
+                    result_type = "❌ LOSS"
+                    xp_gain = SLOTS_LOSS_XP
 
         # Calculate net change
         if multiplier > 0:
@@ -541,7 +557,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                     pass
 
     async def send_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /send [amount] command"""
+        """Handle /send [amount] command - Transfer 🪙 to others"""
         user = update.effective_user
 
         if not update.message.reply_to_message:
@@ -653,13 +669,13 @@ Play slots • Flip coins • Earn XP • Climb ranks
 
 <b>🎰 SLOTS GAME:</b>
 • Command: <code>/slots [amount]</code>
-• Min: 10 ∆ | Max: 10,000 ∆
-• Wins: 2.5x - 10x multipliers
+• Min: 10 🪙 | Max: 10,000 🪙
+• Wins: 10x - 20x multipliers
 • Example: <code>/slots 100</code>
 
 <b>🪙 COIN FLIP:</b>
 • Command: <code>/bet [amount] [heads/tails]</code>
-• Min: 10 ∆ | Max: 10,000 ∆
+• Min: 10 🪙 | Max: 10,000 🪙
 • Win: 2x multiplier
 • Example: <code>/bet 100 heads</code>
 
@@ -1025,7 +1041,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
             balance = user_doc.get('economy', {}).get('balance', 0)
             wins = user_doc.get('total_winnings', 0)
             losses = user_doc.get('total_losses', 0)
-            admin_text += f"• Balance: <code>{int(balance)}{html.escape(CURRENCY_SYMBOL)}</code>\n"
+            admin_text += f"• Balance: <code>{int(balance):,} 🪙</code>\n"
             admin_text += f"• Total Wins: <code>{int(wins)}{html.escape(CURRENCY_SYMBOL)}</code>\n"
             admin_text += f"• Total Losses: <code>{int(losses)}{html.escape(CURRENCY_SYMBOL)}</code>\n"
 
@@ -1145,7 +1161,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                      "💎 <b>Win Big!</b>\n"
                      "Use: <code>/slots [amount]</code>\n\n"
                      "Example: <code>/slots 100</code>\n"
-                     "Min: 10 ∆ | Max: 10,000 ∆",
+                     "Min: 10 🪙 | Max: 10,000 🪙",
                 parse_mode=ParseMode.HTML
             )
         elif query.data == "bet_menu":
@@ -1154,7 +1170,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                      "Choose heads or tails!\n"
                      "Use: <code>/bet [amount] [heads|tails]</code>\n\n"
                      "Example: <code>/bet 100 heads</code>\n"
-                     "Min: 10 ∆ | Max: 10,000 ∆ | Win: 2x",
+                     "Min: 10 🪙 | Max: 10,000 🪙 | Win: 2x",
                 parse_mode=ParseMode.HTML
             )
         elif query.data == "balance":
@@ -1173,7 +1189,7 @@ Play slots • Flip coins • Earn XP • Climb ranks
                 text=f"╔═══════════════════════════╗\n"
                      f"║   💳 YOUR ACCOUNT 💳      ║\n"
                      f"╚═══════════════════════════╝\n\n"
-                     f"💰 <b>Balance:</b> <code>{int(balance):,} ∆</code>\n"
+                     f"💰 <b>Balance:</b> <code>{int(balance):,} 🪙</code>\n"
                      f"⚡ <b>XP:</b> <code>{int(xp):,}</code>\n"
                      f"🎮 <b>Games:</b> <code>{games}</code>\n"
                      f"👑 <b>Status:</b> <b>{role}</b>",

@@ -8,10 +8,8 @@ BOT_USERNAME = "@AXLGameBot"
 GROUP_NAME = "@vfriendschat"
 
 # Owner & Admin
-OWNER_ID = 0  # SET THIS! Your Telegram User ID (get from @userinfobot)
-# Owner: Unlimited bets, can add admins, grant balance, ban users
-# Admin: Unlimited bets, can grant balance to users
-# User: Normal play with bet limits
+OWNER_ID = 8430369957  # Owner: Unlimited bets, all permissions, admin access
+ADMIN_IDS = [8430369957]  # List of admin user IDs - includes owner
 
 # Currency
 CURRENCY_SYMBOL = "∆"
@@ -28,21 +26,26 @@ SLOTS_MAX_BET = 10000
 DAILY_BONUS = 100
 BONUS_COOLDOWN = 12 * 3600  # 12 hours in seconds
 
-# Game Multipliers
-WIN_MULTIPLIER = 1.5  # 150% return
-BIG_WIN_MULTIPLIER = 3.0  # 300% return
+# Game Multipliers - IMPROVED WIN RATES
+WIN_MULTIPLIER = 2.5  # 250% return (improved)
+BIG_WIN_MULTIPLIER = 5.0  # 500% return (improved)
 JACKPOT_MULTIPLIER = 10.0  # 1000% return
 
-# XP System
-SLOTS_WIN_XP = 50
-SLOTS_LOSS_XP = 10
-COIN_FLIP_WIN_XP = 30
-COIN_FLIP_LOSS_XP = 5
+# XP System - BOOSTED REWARDS
+SLOTS_WIN_XP = 100  # Doubled
+SLOTS_LOSS_XP = 20  # Boosted
+COIN_FLIP_WIN_XP = 60  # Doubled
+COIN_FLIP_LOSS_XP = 10  # Boosted
 
 # Coin Flip Settings
 COIN_FLIP_MIN_BET = 10
 COIN_FLIP_MAX_BET = 10000
 COIN_FLIP_MULTIPLIER = 2.0  # 2x on win
+
+# Daily Bet Limits
+DAILY_USER_BET_LIMIT = 50  # Regular users: 50 bets/day
+ADMIN_DAILY_BET_LIMIT = 9999  # Admin: unlimited (9999 is practical max)
+OWNER_DAILY_BET_LIMIT = 9999  # Owner: unlimited
 
 # Messages
 WELCOME_MESSAGE = f"""

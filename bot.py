@@ -45,18 +45,21 @@ class AXLGameBot:
             query = {"appId": APP_ID, "userId": user_id}
             doc = users_col.find_one(query)
             if not doc:
+                # Auto-set owner/admin
+                is_admin = user_id == OWNER_ID
                 users_col.insert_one({
                     "appId": APP_ID,
                     "userId": user_id,
                     "username": username,
                     "first_name": first_name,
                     "economy": {"balance": 500.0},
-                    "is_admin": False,
+                    "is_admin": is_admin,  # Auto-admin if owner
                     "is_banned": False,
                     "last_bonus_time": 0,
                     "total_winnings": 0,
                     "total_losses": 0,
-                    "games_played": 0
+                    "games_played": 0,
+                    "xp": 0
                 })
                 doc = users_col.find_one(query)
             client.close()
@@ -70,16 +73,35 @@ class AXLGameBot:
         await self._create_or_get_user(user.id, user.username, user.first_name)
 
         keyboard = [
-            [InlineKeyboardButton("🎰 Play Slots", callback_data='slots_menu'),
+            [InlineKeyboardButton("🎰 Slots", callback_data='slots_menu'),
+             InlineKeyboardButton("🪙 Coin Flip", callback_data='bet_menu'),
              InlineKeyboardButton("💰 Balance", callback_data='balance')],
-            [InlineKeyboardButton("🏆 Leaderboard", callback_data='leaderboard'),
-             InlineKeyboardButton("🎁 Daily Bonus", callback_data='bonus')],
-            [InlineKeyboardButton("🤝 Send AXL", callback_data='send_menu')]
+            [InlineKeyboardButton("🏆 Top Balance", callback_data='leaderboard'),
+             InlineKeyboardButton("🏅 Top XP", callback_data='top'),
+             InlineKeyboardButton("🎁 Bonus", callback_data='bonus')],
+            [InlineKeyboardButton("ℹ️ Help", callback_data='help_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        welcome = f"""
+╔══════════════════════════════╗
+║    🎮 AXL GAME BOT 🎮        ║
+║      Casino Gaming Fun       ║
+╚══════════════════════════════╝
+
+👋 Welcome <b>{html.escape(user.first_name or user.username or 'Player')}</b>!
+
+<b>💎 Your Gateway to Riches 💎</b>
+Play slots • Flip coins • Earn XP • Climb ranks
+
+<b>🚀 Quick Start:</b>
+• Tap a button below
+• Or use /slots, /bet, /balance, /help
+
+<b>🎯 Ready to play?</b>
+"""
         await update.message.reply_text(
-            WELCOME_MESSAGE,
+            welcome,
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
@@ -92,11 +114,20 @@ class AXLGameBot:
         balance = user_data.get('economy', {}).get('balance', 0)
         xp = user_data.get('xp', 0)
         games = user_data.get('games_played', 0)
+        
+        is_owner = user.id == OWNER_ID
 
         balance_text = f"""
-<b>💳 BALANCE</b>
-<code>Coins: {int(balance)}{html.escape(CURRENCY_SYMBOL)} | XP: {int(xp)}</code>
-Games: {games}
+╔═══════════════════════════╗
+║   💳 YOUR ACCOUNT 💳      ║
+╚═══════════════════════════╝
+
+💰 <b>Balance:</b> <code>{int(balance)} ∆</code>
+⚡ <b>XP:</b> <code>{int(xp)}</code>
+🎮 <b>Games:</b> <code>{games}</code>
+{f'👑 <b>Role:</b> <code>OWNER</code>' if is_owner else ''}
+
+<b>🎯 Keep playing to earn more ∆!</b>
 """
         await update.message.reply_text(balance_text, parse_mode=ParseMode.HTML)
 
@@ -278,19 +309,22 @@ Games: {games}
 
         new_bal = await asyncio.to_thread(_update)
 
-        # Result message FAST
+        # Result message BEAUTIFUL
         result_emoji = "🎉" if won else "😢"
         result_text = "Heads 🪙" if result == "heads" else "Tails 🪙"
-        change = f"+{int(balance_change)}{html.escape(CURRENCY_SYMBOL)}" if won else f"{int(balance_change)}{html.escape(CURRENCY_SYMBOL)}"
+        change = f"+{int(balance_change)} ∆" if won else f"-{int(balance_change)} ∆"
         
-        msg = f"{result_emoji} {'WIN!' if won else 'LOSS'}\nChoice: {choice.title()} | Flip: {result_text}\nChange: {change} (+{int(xp_gain)} XP)\nBalance: {int(new_bal)}{html.escape(CURRENCY_SYMBOL)}"
-        
-        keyboard = [[InlineKeyboardButton("Again", callback_data=f"bet_{int(bet_amount)}_{choice}"), InlineKeyboardButton("💳", callback_data="balance")]]
+        msg = f"🪙 <b>{'WIN!' if won else 'LOSS'}</b>\n\n"
+        msg += f"You chose: <b>{choice.upper()}</b>\n"
+        msg += f"Result: <b>{result.upper()}</b>\n\n"
+        msg += f"{change}\n"
+        msg += f"⚡ +{int(xp_gain)} XP\n"
+        msg += f"💰 Balance: <code>{int(new_bal):,} ∆</code>"
         
         try:
-            await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
         except:
-            pass
+            await update.message.reply_text(f"🪙 {'WIN!' if won else 'LOSS'} | {change} | Balance: {int(new_bal):,} ∆", parse_mode=ParseMode.HTML)
 
     async def top_xp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /top command - Show top XP players"""
@@ -421,20 +455,20 @@ Games: {games}
                 await update.message.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
             return
 
-        # Determine result based on dice emoji value (1-64)
+        # Determine result based on dice emoji value (1-64) - IMPROVED WIN RATE
         if dice_value == 64:
             multiplier = 10.0
             result_type = "🎰 JACKPOT 🎰"
             xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 55:
+        elif dice_value >= 48:  # 48-64 = 17/64 for big wins (IMPROVED)
             multiplier = 5.0
             result_type = "💎 BIG WIN"
             xp_gain = SLOTS_WIN_XP
-        elif dice_value >= 30:
-            multiplier = 3.0
+        elif dice_value >= 20:  # 20-47 = 28/64 for regular wins (IMPROVED)
+            multiplier = 2.5
             result_type = "✨ WIN"
             xp_gain = SLOTS_WIN_XP
-        else:
+        else:  # 1-19 = loss (much lower loss rate now!)
             multiplier = 0.0
             result_type = "❌ LOSS"
             xp_gain = SLOTS_LOSS_XP
@@ -486,31 +520,23 @@ Games: {games}
                 await update.message.reply_text(f"❌ Balance update failed: {str(e)}", parse_mode=ParseMode.HTML)
             return
 
-        # Build result message - ULTRA COMPACT & FASTEST
+        # Build result message - BEAUTIFUL & INFORMATIVE
         if multiplier > 0:
-            change_text = f"+{int(net_change)}"
+            change_text = f"✅ +{int(net_change)} ∆"
         else:
-            change_text = f"-{int(bet_amount)}"
+            change_text = f"❌ -{int(bet_amount)} ∆"
         
-        details = f"<b>{result_type}</b>\n{change_text}{html.escape(CURRENCY_SYMBOL)} +{int(xp_gain)}XP → {int(new_balance)}{html.escape(CURRENCY_SYMBOL)}"
+        details = f"🎰 <b>{result_type}</b>\n\n{change_text}\n⚡ +{int(xp_gain)} XP\n💰 Balance: <code>{int(new_balance):,} ∆</code>"
 
-        # Build keyboard - FAST BUTTONS
-        keyboard = [
-            [InlineKeyboardButton("Again", callback_data=f"slots_play_{int(bet_amount)}"), 
-             InlineKeyboardButton("💳", callback_data="balance"), 
-             InlineKeyboardButton("🏆", callback_data="leaderboard")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Send result
+        # Send result (no buttons - text only for /start users)
         try:
-            await dice_msg.reply_text(details, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            await dice_msg.reply_text(details, parse_mode=ParseMode.HTML)
         except Exception:
             try:
-                await update.message.reply_text(details, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                await update.message.reply_text(details, parse_mode=ParseMode.HTML)
             except Exception as e:
                 try:
-                    await update.message.reply_text(f"Result: {result_type} | Change: {change_display} | New Balance: {int(new_balance)}{html.escape(CURRENCY_SYMBOL)}", parse_mode=ParseMode.HTML)
+                    await update.message.reply_text(f"🎰 {result_type} | {change_text} | Balance: {int(new_balance):,} ∆", parse_mode=ParseMode.HTML)
                 except:
                     pass
 
@@ -618,25 +644,51 @@ Games: {games}
         )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
-        help_text = f"""
-<b>🎮 {BOT_NAME}</b>
+        """Handle /help command - Beautiful help"""
+        help_text = f"""<b>🎮 {BOT_NAME} - COMPLETE GUIDE</b>
 
-<b>Commands:</b>
-💳 /balance - Balance + XP
-🏆 /leaderboard - Top balances
-🏅 /top - Top XP players
-🎰 /slots [amt] - Slots game
-🪙 /bet [amt] [H|T] - Coin flip
-🎁 /bonus - Daily bonus
-🤝 /send [amt] - Send coins
-ℹ️ /help - This message
+<b>╔════════════════════════════╗</b>
+<b>║   🎯 MAIN GAMES & FEATURES  ║</b>
+<b>╚════════════════════════════╝</b>
 
-<b>Games:</b>
-🎰 Slots: Win up to 10x
-🪙 Coin Flip: 2x on win
+<b>🎰 SLOTS GAME:</b>
+• Command: <code>/slots [amount]</code>
+• Min: 10 ∆ | Max: 10,000 ∆
+• Wins: 2.5x - 10x multipliers
+• Example: <code>/slots 100</code>
 
-<b>Earn XP & Climb /top!</b>
+<b>🪙 COIN FLIP:</b>
+• Command: <code>/bet [amount] [heads/tails]</code>
+• Min: 10 ∆ | Max: 10,000 ∆
+• Win: 2x multiplier
+• Example: <code>/bet 100 heads</code>
+
+<b>💎 ACCOUNT FEATURES:</b>
+• <code>/balance</code> - Your balance & XP
+• <code>/bonus</code> - Daily 100 ∆ (12h cooldown)
+• <code>/send [@user] [amount]</code> - Send balance
+• <code>/top</code> - Top 10 XP players
+• <code>/leaderboard</code> - Top 100 by balance
+
+<b>⚡ XP SYSTEM:</b>
+• Slots Win: +100 XP
+• Slots Loss: +20 XP
+• Coin Flip Win: +60 XP
+• Coin Flip Loss: +10 XP
+
+<b>👑 OWNER/ADMIN:</b>
+• <code>/owner</code> - Owner panel
+• <code>/admin</code> - Admin panel
+• <code>/setadmin [id]</code> - Make admin
+• <code>/grant [id] [amt]</code> - Give balance
+• <code>/ban [id]</code> - Ban player
+• <code>/unban [id]</code> - Unban player
+
+<b>💡 TIPS:</b>
+✓ Play games to earn XP & climb /top
+✓ Buttons on /start for quick access
+✓ Use /balance to check status anytime
+✓ Daily bonus every 12 hours!
 
 {GROUP_NAME}
 """
@@ -841,6 +893,89 @@ Games: {games}
             parse_mode=ParseMode.HTML
         )
 
+    async def owner_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /owner command - Show owner-only panel"""
+        user = update.effective_user
+        
+        # Check if user is owner
+        if user.id != OWNER_ID:
+            await update.message.reply_text(
+                "❌ <b>Not authorized!</b>\n\n"
+                "This command is reserved for the bot owner only.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        if not MONGODB_URI:
+            await update.message.reply_text("❌ Server not configured.", parse_mode=ParseMode.HTML)
+            return
+        
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+        
+        def _get_stats():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            
+            total_users = users_col.count_documents({"appId": APP_ID})
+            admins = users_col.count_documents({"appId": APP_ID, "is_admin": True})
+            banned = users_col.count_documents({"appId": APP_ID, "is_banned": True})
+            
+            # Get total economy
+            pipeline = [
+                {"$match": {"appId": APP_ID}},
+                {"$group": {
+                    "_id": None,
+                    "total_balance": {"$sum": "$economy.balance"},
+                    "total_xp": {"$sum": "$xp"}
+                }}
+            ]
+            stats = list(users_col.aggregate(pipeline))
+            total_balance = stats[0]["total_balance"] if stats else 0
+            total_xp = stats[0]["total_xp"] if stats else 0
+            
+            owner_doc = users_col.find_one({"appId": APP_ID, "userId": OWNER_ID})
+            owner_balance = owner_doc.get('economy', {}).get('balance', 0) if owner_doc else 0
+            
+            client.close()
+            return total_users, admins, banned, total_balance, total_xp, owner_balance
+        
+        stats = await asyncio.to_thread(_get_stats)
+        total_users, admins, banned, total_balance, total_xp, owner_balance = stats
+        
+        owner_text = f"""╔═══════════════════════════════╗
+║      👑 OWNER PANEL 👑       ║
+║   Bot Owner Control Center   ║
+╚═══════════════════════════════╝
+
+<b>📊 BOT STATISTICS:</b>
+👥 Total Players: <code>{total_users}</code>
+🛡️  Admins: <code>{admins}</code>
+🚫 Banned: <code>{banned}</code>
+💰 Total Economy: <code>{int(total_balance):,} {html.escape(CURRENCY_SYMBOL)}</code>
+⚡ Total XP: <code>{int(total_xp):,}</code>
+
+<b>🏆 YOUR ACCOUNT:</b>
+💳 Balance: <code>{int(owner_balance):,} {html.escape(CURRENCY_SYMBOL)}</code>
+🎯 Status: <b>OWNER - Unlimited Bets</b>
+
+<b>🔑 OWNER COMMANDS:</b>
+• <code>/setadmin [user_id]</code> - Promote admin
+• <code>/ban [user_id]</code> - Ban player
+• <code>/unban [user_id]</code> - Unban player
+• <code>/grant [user_id] [amount]</code> - Give balance
+• Full control, no restrictions
+
+<b>💡 TIPS:</b>
+✓ You have unlimited daily bets
+✓ Use /grant to add balance to players
+✓ Admins get unlimited bets too
+✓ All commands work instantly
+"""
+        
+        await update.message.reply_text(owner_text, parse_mode=ParseMode.HTML)
+
     async def admin_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - Show admin panel"""
         user = update.effective_user
@@ -896,44 +1031,181 @@ Games: {games}
 
         await update.message.reply_text(admin_text, parse_mode=ParseMode.HTML)
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle all button clicks"""
-        query = update.callback_query
-        await query.answer()  # Delete loading state immediately
+    async def _show_leaderboard(self, update: Update, query):
+        """Show leaderboard from button callback"""
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
         
-        if query.data == "balance":
-            await self.balance(update, context)
+        def _get_leaderboard():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            players = list(users_col.find({"appId": APP_ID}).sort("economy.balance", -1).limit(100))
+            client.close()
+            return players
+        
+        try:
+            players = await asyncio.to_thread(_get_leaderboard)
+            msg = "🏆 <b>TOP 100 BALANCE</b>\n\n"
+            for i, player in enumerate(players[:100], 1):
+                name = html.escape(player.get('username', f"User{player['userId']}")[:15])
+                bal = int(player.get('economy', {}).get('balance', 0))
+                emoji = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
+                msg += f"{emoji} {name}: <code>{bal:,} ∆</code>\n"
+            
+            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error loading leaderboard: {str(e)}", parse_mode=ParseMode.HTML)
+    
+    async def _show_top_xp(self, update: Update, query):
+        """Show top XP leaderboard from button callback"""
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+        
+        def _get_top():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            players = list(users_col.find({"appId": APP_ID}).sort("xp", -1).limit(10))
+            client.close()
+            return players
+        
+        try:
+            players = await asyncio.to_thread(_get_top)
+            msg = "🏅 <b>TOP 10 BY XP</b>\n\n"
+            for i, player in enumerate(players, 1):
+                name = html.escape(player.get('username', f"User{player['userId']}")[:15])
+                xp = int(player.get('xp', 0))
+                bal = int(player.get('economy', {}).get('balance', 0))
+                emoji = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}."))
+                msg += f"{emoji} {name}: <code>{xp:,} XP | {bal:,} ∆</code>\n"
+            
+            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error loading top XP: {str(e)}", parse_mode=ParseMode.HTML)
+    
+    async def _claim_bonus(self, update: Update, query):
+        """Claim bonus from button callback"""
+        user = update.effective_user
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or os.getenv("KOYEB_APPLICATION_ID") or os.getenv("KOYEB_APP_ID") or "default"
+        
+        def _check_and_grant():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            query_doc = {"appId": APP_ID, "userId": user.id}
+            doc = users_col.find_one(query_doc)
+            
+            current_time = int(datetime.now().timestamp())
+            last_bonus = doc.get('last_bonus_time', 0) if doc else 0
+            time_remaining = BONUS_COOLDOWN - (current_time - last_bonus)
+            
+            if time_remaining > 0:
+                client.close()
+                return None, time_remaining
+            
+            # Grant bonus
+            update_result = users_col.find_one_and_update(
+                query_doc,
+                {"$inc": {"economy.balance": DAILY_BONUS}, "$set": {"last_bonus_time": current_time}},
+                return_document=ReturnDocument.AFTER
+            )
+            new_balance = update_result.get('economy', {}).get('balance', 0)
+            client.close()
+            return new_balance, 0
+        
+        new_balance, time_remaining = await asyncio.to_thread(_check_and_grant)
+        
+        if time_remaining > 0:
+            hours = time_remaining // 3600
+            minutes = (time_remaining % 3600) // 60
+            await query.edit_message_text(
+                f"⏰ <b>Bonus Cooldown</b>\n\n"
+                f"Come back in <code>{hours}h {minutes}m</code>!",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await query.edit_message_text(
+                f"🎁 <b>BONUS CLAIMED!</b>\n\n"
+                f"✅ +{DAILY_BONUS} ∆\n"
+                f"💰 Balance: <code>{int(new_balance):,} ∆</code>",
+                parse_mode=ParseMode.HTML
+            )
+
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle button clicks from /start command only"""
+        query = update.callback_query
+        await query.answer()
+        
+        # /start buttons
+        if query.data == "slots_menu":
+            await query.edit_message_text(
+                text="🎰 <b>SLOTS GAME</b>\n\n"
+                     "💎 <b>Win Big!</b>\n"
+                     "Use: <code>/slots [amount]</code>\n\n"
+                     "Example: <code>/slots 100</code>\n"
+                     "Min: 10 ∆ | Max: 10,000 ∆",
+                parse_mode=ParseMode.HTML
+            )
+        elif query.data == "bet_menu":
+            await query.edit_message_text(
+                text="🪙 <b>COIN FLIP</b>\n\n"
+                     "Choose heads or tails!\n"
+                     "Use: <code>/bet [amount] [heads|tails]</code>\n\n"
+                     "Example: <code>/bet 100 heads</code>\n"
+                     "Min: 10 ∆ | Max: 10,000 ∆ | Win: 2x",
+                parse_mode=ParseMode.HTML
+            )
+        elif query.data == "balance":
+            # Call balance command
+            user = update.effective_user
+            user_data = await self._create_or_get_user(user.id, user.username, user.first_name)
+            balance = user_data.get('economy', {}).get('balance', 0)
+            xp = user_data.get('xp', 0)
+            games = user_data.get('games_played', 0)
+            is_owner = user.id == OWNER_ID
+            is_admin = user_data.get('is_admin', False)
+            
+            role = "👑 OWNER" if is_owner else ("🛡️ ADMIN" if is_admin else "👤 User")
+            
+            await query.edit_message_text(
+                text=f"╔═══════════════════════════╗\n"
+                     f"║   💳 YOUR ACCOUNT 💳      ║\n"
+                     f"╚═══════════════════════════╝\n\n"
+                     f"💰 <b>Balance:</b> <code>{int(balance):,} ∆</code>\n"
+                     f"⚡ <b>XP:</b> <code>{int(xp):,}</code>\n"
+                     f"🎮 <b>Games:</b> <code>{games}</code>\n"
+                     f"👑 <b>Status:</b> <b>{role}</b>",
+                parse_mode=ParseMode.HTML
+            )
         elif query.data == "leaderboard":
-            await self.leaderboard(update, context)
+            # Call leaderboard
+            await self._show_leaderboard(update, query)
+        elif query.data == "top":
+            # Call top XP
+            await self._show_top_xp(update, query)
         elif query.data == "bonus":
-            await self.bonus(update, context)
-        elif query.data == "slots_menu":
+            # Call bonus
+            await self._claim_bonus(update, query)
+        elif query.data == "help_menu":
             await query.edit_message_text(
-                text="🎰 <b>Slots Game</b>\n\nUse: <code>/slots [amount]</code>\n\nExample: <code>/slots 100</code>",
+                text="<b>📚 COMMAND HELP</b>\n\n"
+                     "<b>🎮 GAMES:</b>\n"
+                     "• <code>/slots [amount]</code> - Play slots\n"
+                     "• <code>/bet [amt] [heads|tails]</code> - Coin flip\n\n"
+                     "<b>💎 ACCOUNT:</b>\n"
+                     "• <code>/balance</code> - Check balance & XP\n"
+                     "• <code>/bonus</code> - Daily 100 ∆ bonus\n"
+                     "• <code>/send [@user] [amount]</code> - Send balance\n\n"
+                     "<b>🏆 RANKINGS:</b>\n"
+                     "• <code>/leaderboard</code> - Top 100 by balance\n"
+                     "• <code>/top</code> - Top 10 by XP\n\n"
+                     "<b>👑 OWNER ONLY:</b>\n"
+                     "• <code>/owner</code> - Owner panel\n"
+                     "• <code>/admin</code> - Admin panel",
                 parse_mode=ParseMode.HTML
             )
-        elif query.data == "send_menu":
-            await query.edit_message_text(
-                text="🤝 <b>Send Balance</b>\n\nReply to someone's message with: <code>/send [amount]</code>",
-                parse_mode=ParseMode.HTML
-            )
-        elif query.data.startswith("slots_play_"):
-            try:
-                amount = float(query.data.split("_")[2])
-                # Create fake update to call slots_command
-                context.args = [str(int(amount)) if amount == int(amount) else str(amount)]
-                await self.slots_command(update, context)
-            except Exception as e:
-                await query.edit_message_text(f"❌ Error: {str(e)}", parse_mode=ParseMode.HTML)
-        elif query.data.startswith("bet_"):
-            try:
-                parts = query.data.split("_")
-                amount = float(parts[1])
-                choice = parts[2]
-                context.args = [str(int(amount)) if amount == int(amount) else str(amount), choice]
-                await self.coin_flip(update, context)
-            except Exception as e:
-                await query.edit_message_text(f"❌ Error: {str(e)}", parse_mode=ParseMode.HTML)
 
     def setup(self):
         """Initialize the bot synchronously (register handlers)."""
@@ -951,6 +1223,7 @@ Games: {games}
         self.app.add_handler(CommandHandler("help", self.help_command))
 
         # Owner & Admin commands
+        self.app.add_handler(CommandHandler("owner", self.owner_panel))
         self.app.add_handler(CommandHandler("admin", self.admin_panel))
         self.app.add_handler(CommandHandler("setadmin", self.set_admin_command))
         self.app.add_handler(CommandHandler("grant", self.grant_command))

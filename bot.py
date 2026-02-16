@@ -59,7 +59,9 @@ class AXLGameBot:
                     "total_winnings": 0,
                     "total_losses": 0,
                     "games_played": 0,
-                    "xp": 0
+                    "xp": 0,
+                    "status": "alive",  # New: PvP status
+                    "protected_until": 0  # New: Protection timestamp
                 })
                 doc = users_col.find_one(query)
             client.close()
@@ -415,14 +417,8 @@ Play slots • Flip coins • Earn XP • Climb ranks
             await update.message.reply_text("🚫 <b>You are banned!</b> Contact the owner.", parse_mode=ParseMode.HTML)
             return
         
-        # Check bet limits
-        if not (is_owner or is_admin):
-            if bet_amount < SLOTS_MIN_BET or bet_amount > SLOTS_MAX_BET:
-                await update.message.reply_text(
-                    f"❌ Bet must be between {SLOTS_MIN_BET} 🪙 and {SLOTS_MAX_BET} 🪙",
-                    parse_mode=ParseMode.HTML
-                )
-                return
+        # Check bet limits - NO LIMITS for any user
+        # Users can bet ANY amount (no min/max)
 
         # Check if has balance
         if current_balance < bet_amount and not (is_owner or is_admin):
@@ -1222,6 +1218,255 @@ Play slots • Flip coins • Earn XP • Climb ranks
                      "• <code>/admin</code> - Admin panel",
                 parse_mode=ParseMode.HTML
             )
+
+    async def deletecoins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /deletecoins - OWNER ONLY - Delete user's coins"""
+        if update.effective_user.id != OWNER_ID:
+            await update.message.reply_text("❌ Owner only!", parse_mode=ParseMode.HTML)
+            return
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text("Usage: /deletecoins [user_id] [amount]", parse_mode=ParseMode.HTML)
+            return
+        try:
+            target_id = int(context.args[0])
+            amount = int(context.args[1])
+        except:
+            await update.message.reply_text("❌ Invalid format", parse_mode=ParseMode.HTML)
+            return
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _delete():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$inc": {"economy.balance": -amount}})
+            doc = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            client.close()
+            return doc
+        
+        result = await asyncio.to_thread(_delete)
+        bal = result.get('economy', {}).get('balance', 0) if result else 0
+        await update.message.reply_text(f"✅ Deleted {amount} 🪙 from user {target_id}\n💳 New balance: {int(bal):,} 🪙", parse_mode=ParseMode.HTML)
+
+    async def kill_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /kill [user_id] - Kill another player (if not protected)"""
+        user = update.effective_user
+        if not context.args:
+            await update.message.reply_text("Usage: /kill [@user_id]", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            target_id = int(context.args[0].replace("@", ""))
+        except:
+            await update.message.reply_text("❌ Invalid user", parse_mode=ParseMode.HTML)
+            return
+        
+        if user.id == target_id:
+            await update.message.reply_text("❌ Can't kill yourself!", parse_mode=ParseMode.HTML)
+            return
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _kill():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            
+            target = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            if not target:
+                client.close()
+                return None, "not_found"
+            
+            protected_until = target.get('protected_until', 0)
+            current_time = int(datetime.now().timestamp())
+            
+            if current_time < protected_until:
+                client.close()
+                return target, "protected"
+            
+            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$set": {"status": "dead"}})
+            client.close()
+            return target, "killed"
+        
+        result, status = await asyncio.to_thread(_kill)
+        
+        if status == "not_found":
+            await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
+        elif status == "protected":
+            await update.message.reply_text(f"🛡️ User {target_id} is protected! Can't kill.", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"☠️ <b>KILLED!</b> User {target_id} is now DEAD!\n\n💀 They need 2000 🪙 to revive!", parse_mode=ParseMode.HTML)
+
+    async def protect_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /protect [duration] - Protect yourself from kills"""
+        user = update.effective_user
+        duration = "1d"
+        if context.args:
+            duration = context.args[0]
+        
+        # Parse duration
+        if "d" in duration:
+            hours = int(duration.replace("d", "")) * 24
+        elif "h" in duration:
+            hours = int(duration.replace("h", ""))
+        else:
+            hours = 24
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _protect():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            
+            current_time = int(datetime.now().timestamp())
+            protected_until = current_time + (hours * 3600)
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, {"$set": {"protected_until": protected_until, "status": "alive"}})
+            client.close()
+            return protected_until
+        
+        protected_until = await asyncio.to_thread(_protect)
+        end_time = datetime.fromtimestamp(protected_until).strftime("%Y-%m-%d %H:%M")
+        await update.message.reply_text(f"🛡️ <b>PROTECTED!</b>\n\nYou're safe until {end_time}\nCan't be killed or robbed!", parse_mode=ParseMode.HTML)
+
+    async def rob_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rob [user_id] - Rob another player"""
+        user = update.effective_user
+        if not context.args:
+            await update.message.reply_text("Usage: /rob [@user_id]", parse_mode=ParseMode.HTML)
+            return
+        
+        try:
+            target_id = int(context.args[0].replace("@", ""))
+        except:
+            await update.message.reply_text("❌ Invalid user", parse_mode=ParseMode.HTML)
+            return
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _rob():
+            import random
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            
+            target = users_col.find_one({"appId": APP_ID, "userId": target_id})
+            if not target:
+                client.close()
+                return None, "not_found", 0
+            
+            protected_until = target.get('protected_until', 0)
+            current_time = int(datetime.now().timestamp())
+            
+            if current_time < protected_until:
+                client.close()
+                return target, "protected", 0
+            
+            # Rob 10-50% of their balance
+            target_balance = target.get('economy', {}).get('balance', 0)
+            rob_amount = int(target_balance * random.uniform(0.1, 0.5))
+            
+            users_col.update_one({"appId": APP_ID, "userId": target_id}, {"$inc": {"economy.balance": -rob_amount}})
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, {"$inc": {"economy.balance": rob_amount}})
+            client.close()
+            return target, "robbed", rob_amount
+        
+        result, status, amount = await asyncio.to_thread(_rob)
+        
+        if status == "not_found":
+            await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
+        elif status == "protected":
+            await update.message.reply_text(f"🛡️ User {target_id} is protected! Can't rob.", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"💰 <b>ROBBED!</b>\n\nStole {amount:,} 🪙 from {target_id}!", parse_mode=ParseMode.HTML)
+
+    async def revive_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /revive - Revive yourself from dead status (costs 2000 coins)"""
+        user = update.effective_user
+        
+        MONGODB_URI = os.getenv("MONGODB_URI")
+        APP_ID = os.getenv("APP_ID") or "default"
+        
+        def _revive():
+            client = MongoClient(MONGODB_URI)
+            mongo_db = client['artifacts']
+            users_col = mongo_db['users']
+            
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            if not doc:
+                client.close()
+                return None, "not_found"
+            
+            status = doc.get('status', 'alive')
+            balance = doc.get('economy', {}).get('balance', 0)
+            
+            if status != 'dead':
+                client.close()
+                return doc, "not_dead"
+            
+            if balance < REVIVE_COST:
+                client.close()
+                return doc, "insufficient"
+            
+            users_col.update_one({"appId": APP_ID, "userId": user.id}, {"$set": {"status": "alive"}, "$inc": {"economy.balance": -REVIVE_COST}})
+            doc = users_col.find_one({"appId": APP_ID, "userId": user.id})
+            client.close()
+            return doc, "revived"
+        
+        result, status = await asyncio.to_thread(_revive)
+        
+        if status == "not_found":
+            await update.message.reply_text("❌ User not found", parse_mode=ParseMode.HTML)
+        elif status == "not_dead":
+            await update.message.reply_text("✅ You're alive!", parse_mode=ParseMode.HTML)
+        elif status == "insufficient":
+            await update.message.reply_text(f"❌ Need 2000 🪙 to revive (you have {int(result.get('economy', {}).get('balance', 0)):,})", parse_mode=ParseMode.HTML)
+        else:
+            new_bal = result.get('economy', {}).get('balance', 0)
+            await update.message.reply_text(f"✅ <b>REVIVED!</b>\n\n💀 Paid 2000 🪙 to revive\n💳 Balance: {int(new_bal):,} 🪙", parse_mode=ParseMode.HTML)
+
+    # GAME STUBS (12 new games - quick implementations)
+    async def blackjack_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🃏 <b>BLACKJACK</b>\n\nUse: /blackjack [amount]\n\n🎯 Get 21 to win!\n🎰 Multiplier: 1.5x", parse_mode=ParseMode.HTML)
+
+    async def roulette_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🎡 <b>ROULETTE</b>\n\nUse: /roulette [amount]\n\nPick a number (0-36)!\n🎰 Multiplier: 2.1x", parse_mode=ParseMode.HTML)
+
+    async def poker_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("♠️ <b>POKER</b>\n\nUse: /poker [amount]\n\nBeat the house!\n🎰 Multiplier: 3x", parse_mode=ParseMode.HTML)
+
+    async def lucky_number_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🍀 <b>LUCKY NUMBER</b>\n\nUse: /lucky [amount]\n\nPrize: Up to 50x!\n🎰 Max win: 50x", parse_mode=ParseMode.HTML)
+
+    async def scratch_card_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🎫 <b>SCRATCH CARD</b>\n\nUse: /scratch [amount]\n\nScratch to reveal!\n🎰 Multiplier: 5x", parse_mode=ParseMode.HTML)
+
+    async def spin_wheel_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🎪 <b>SPIN WHEEL</b>\n\nUse: /wheel [amount]\n\nSpin and win!\n🎰 Multiplier: 3.5x", parse_mode=ParseMode.HTML)
+
+    async def horse_race_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🏇 <b>HORSE RACE</b>\n\nUse: /horse [amount]\n\nBet on your horse (1-8)!\n🎰 Multiplier: 4x", parse_mode=ParseMode.HTML)
+
+    async def crash_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("📈 <b>CRASH</b>\n\nUse: /crash [amount]\n\nCash out before crash!\n🎰 Multiplier: 2x", parse_mode=ParseMode.HTML)
+
+    async def multiplier_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("📊 <b>MULTIPLIER</b>\n\nUse: /multi [amount]\n\nMultiplier grows!\n🎰 Multiplier: 3x", parse_mode=ParseMode.HTML)
+
+    async def treasure_hunt_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🏴‍☠️ <b>TREASURE HUNT</b>\n\nUse: /treasure [amount]\n\nHunt for treasure!\n🎰 Multiplier: 10x", parse_mode=ParseMode.HTML)
+
+    async def dice_roll_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🎲 <b>DICE ROLL</b>\n\nUse: /dice [amount]\n\nRoll the dice!\n🎰 Multiplier: 2.5x", parse_mode=ParseMode.HTML)
+
+    async def card_flip_game(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🃏 <b>CARD FLIP</b>\n\nUse: /flip [amount]\n\nFlip cards!\n🎰 Multiplier: 2x", parse_mode=ParseMode.HTML)
 
     def setup(self):
         """Initialize the bot synchronously (register handlers)."""

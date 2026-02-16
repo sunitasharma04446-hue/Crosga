@@ -21,10 +21,22 @@ JACKPOT_EMOJI = "🎰"
 WINNING_COMBO = "777"  # Using emoji positions
 
 # Rewards
-SLOTS_MIN_BET = 10
-SLOTS_MAX_BET = 10000
+SLOTS_MIN_BET = 1        # NO LIMITS - users can bet any amount
+SLOTS_MAX_BET = 9999999  # NO LIMITS
 DAILY_BONUS = 100
 BONUS_COOLDOWN = 12 * 3600  # 12 hours in seconds
+
+# PvP System
+REVIVE_COST = 2000       # Cost to revive (🪙)
+KILL_COOLDOWN = 3600     # Kill cooldown (1 hour)
+ROB_COOLDOWN = 1800      # Rob cooldown (30 mins)
+PROTECT_DURATION = 86400 # Protection duration (1 day)
+
+# Protection Status
+PROTECTION_ACTIVE = "protected"
+PROTECTION_EXPIRED = "vulnerable"
+STATUS_ALIVE = "alive"
+STATUS_DEAD = "dead"
 
 # Game Multipliers - USER and ADMIN tuned (very generous per request)
 # User multipliers (regular players)
@@ -44,9 +56,23 @@ COIN_FLIP_WIN_XP = 60  # Doubled
 COIN_FLIP_LOSS_XP = 10  # Boosted
 
 # Coin Flip Settings
-COIN_FLIP_MIN_BET = 10
-COIN_FLIP_MAX_BET = 10000
+COIN_FLIP_MIN_BET = 1
+COIN_FLIP_MAX_BET = 9999999
 COIN_FLIP_MULTIPLIER = 2.0  # 2x on win
+
+# NEW GAME MULTIPLIERS
+BLACKJACK_MULTIPLIER = 1.5
+ROULETTE_MULTIPLIER = 2.1
+POKER_MULTIPLIER = 3.0
+LUCKY_NUMBER_MULTIPLIER = 50.0
+SCRATCH_CARD_MULTIPLIER = 5.0
+SPIN_WHEEL_MULTIPLIER = 3.5
+HORSE_RACE_MULTIPLIER = 4.0
+CRASH_GAME_MULTIPLIER = 2.0
+MULTIPLIER_GAME_MULTIPLIER = 3.0
+TREASURE_HUNT_MULTIPLIER = 10.0
+DICE_ROLL_MULTIPLIER = 2.5
+CARD_FLIP_MULTIPLIER = 2.0
 
 # Daily Bet Limits
 DAILY_USER_BET_LIMIT = 50  # Regular users: 50 bets/day

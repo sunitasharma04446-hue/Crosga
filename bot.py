@@ -1475,13 +1475,37 @@ Play slots • Flip coins • Earn XP • Climb ranks
         # Add handlers
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("balance", self.balance))
+        self.app.add_handler(CommandHandler("bal", self.balance))  # Alias
         self.app.add_handler(CommandHandler("leaderboard", self.leaderboard))
         self.app.add_handler(CommandHandler("bonus", self.bonus))
         self.app.add_handler(CommandHandler("slots", self.slots_command))
         self.app.add_handler(CommandHandler("bet", self.coin_flip))
         self.app.add_handler(CommandHandler("top", self.top_xp))
         self.app.add_handler(CommandHandler("send", self.send_command))
+        self.app.add_handler(CommandHandler("stats", self.stats_command))
+        self.app.add_handler(CommandHandler("rewards", self.rewards_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+
+        # New Games (12 games)
+        self.app.add_handler(CommandHandler("blackjack", self.blackjack_game))
+        self.app.add_handler(CommandHandler("roulette", self.roulette_game))
+        self.app.add_handler(CommandHandler("poker", self.poker_game))
+        self.app.add_handler(CommandHandler("lucky", self.lucky_number_game))
+        self.app.add_handler(CommandHandler("scratch", self.scratch_card_game))
+        self.app.add_handler(CommandHandler("wheel", self.spin_wheel_game))
+        self.app.add_handler(CommandHandler("horse", self.horse_race_game))
+        self.app.add_handler(CommandHandler("crash", self.crash_game))
+        self.app.add_handler(CommandHandler("multi", self.multiplier_game))
+        self.app.add_handler(CommandHandler("treasure", self.treasure_hunt_game))
+        self.app.add_handler(CommandHandler("dice", self.dice_roll_game))
+        self.app.add_handler(CommandHandler("flip", self.card_flip_game))
+
+        # PvP System
+        self.app.add_handler(CommandHandler("kill", self.kill_user))
+        self.app.add_handler(CommandHandler("protect", self.protect_user))
+        self.app.add_handler(CommandHandler("rob", self.rob_user))
+        self.app.add_handler(CommandHandler("revive", self.revive_user))
+        self.app.add_handler(CommandHandler("deletecoins", self.deletecoins_command))
 
         # Owner & Admin commands
         self.app.add_handler(CommandHandler("owner", self.owner_panel))

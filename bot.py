@@ -334,26 +334,36 @@ class AXLGameBot:
             await dice_msg.reply_text("❌ Failed to read spin result.", parse_mode=ParseMode.HTML)
             return
 
-        # Determine result
+        # Determine result based on dice emoji value (1-64)
+        # 🎰 emoji: 64=jackpot, 55-63=big win, 30-54=win, 1-29=loss
         multiplier = 0.0
-        result_type = "LOSS"
+        result_type = "❌ LOSS"
+        
         if dice_value == 64:
+            # Perfect jackpot! All three slots match
             multiplier = 10.0
-            result_type = "🎰 JACKPOT 🎰"
-        elif dice_value in (1, 22, 43):
+            result_type = "🎰🎰🎰 JACKPOT! 🎰🎰🎰"
+        elif dice_value >= 55:
+            # Big win (high value combinations)
+            multiplier = 5.0
+            result_type = "💎 BIG WIN 💎"
+        elif dice_value >= 30:
+            # Normal win (moderate combinations)
             multiplier = 3.0
             result_type = "✨ WIN ✨"
         else:
+            # Loss (low value)
             multiplier = 0.0
             result_type = "❌ LOSS"
 
-        if dice_value not in (1, 22, 43, 64):
-            net_change = -bet_amount
-            amount_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
-        else:
+        # Calculate balance change
+        if multiplier > 0:
             profit = bet_amount * (multiplier - 1)
             net_change = profit
             amount_text = f"<code>+{int(profit)}{html.escape(CURRENCY_SYMBOL)}</code>" if profit == int(profit) else f"<code>+{profit:.2f}{html.escape(CURRENCY_SYMBOL)}</code>"
+        else:
+            net_change = -bet_amount
+            amount_text = f"<code>-{int(bet_amount)}{html.escape(CURRENCY_SYMBOL)}</code>"
 
         # Update DB with net_change
         before_bal_check, new_balance = await get_balance_and_update(user, net_change, create_if_missing=True)
